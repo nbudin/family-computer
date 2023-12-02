@@ -9,6 +9,11 @@ pub struct INESRom {
   pub prg_data: Vec<u8>,
   pub chr_data: Vec<u8>,
   pub trainer_data: Option<Vec<u8>>,
+  pub has_battery_ram: bool,
+  pub vertical_mirroring: bool,
+  pub mapper_id: u16,
+  pub playchoice_10: bool,
+  pub vs_unisystem: bool,
 }
 
 impl INESRom {
@@ -23,8 +28,20 @@ impl INESRom {
 
     let prg_size: usize = usize::from(header[4]) * 16 * 1024;
     let chr_size: usize = usize::from(header[5]) * 8 * 1024;
+
     let flags6 = header[6];
     let has_trainer = (flags6 & 0b100) > 0;
+    let has_battery_ram = (flags6 & 0b10) > 0;
+    let vertical_mirroring = (flags6 & 0b1) > 0;
+    let mapper_low_nybble = flags6 >> 4;
+
+    let flags7 = header[7];
+    let _nes20_format = ((flags7 >> 2) & 0b11) == 2;
+    let playchoice_10 = (flags7 & 0b10) > 0;
+    let vs_unisystem = (flags7 & 0b1) > 0;
+    let mapper_high_nybble = flags7 >> 4;
+
+    let mapper_id = (mapper_high_nybble << 4) + mapper_low_nybble;
 
     let mut trainer_data: Option<Vec<u8>> = None;
 
@@ -48,6 +65,11 @@ impl INESRom {
       chr_data: chr_buf.into(),
       prg_data: prg_buf.into(),
       trainer_data,
+      has_battery_ram,
+      vertical_mirroring,
+      playchoice_10,
+      vs_unisystem,
+      mapper_id: u16::from(mapper_id),
     })
   }
 }

@@ -1,23 +1,42 @@
-use crate::{cpu::CPU, ines_rom::INESRom, memory::Memory};
+use crate::{
+  cartridge::{load_cartridge, BoxCartridge},
+  cpu::CPU,
+  ines_rom::INESRom,
+  ppu::PPUState,
+};
+
+pub type WorkRAM = [u8; 2048];
+
+#[derive(Debug)]
+pub struct MachineState {
+  pub work_ram: WorkRAM,
+  pub cartridge: BoxCartridge,
+  pub ppu_state: PPUState,
+}
+
+impl MachineState {}
 
 pub struct Machine {
   pub cpu: CPU,
-  pub memory: Memory,
-  pub prg_rom: Vec<u8>,
-  pub chr_rom: Vec<u8>,
+  pub state: MachineState,
 }
 
 impl Machine {
-  pub fn from_rom(rom: &INESRom) -> Self {
+  pub fn from_rom(rom: INESRom) -> Self {
     Self {
       cpu: CPU::new(),
-      memory: Memory::new(),
-      prg_rom: rom.prg_data.clone(),
-      chr_rom: rom.chr_data.clone(),
+      state: MachineState {
+        work_ram: [0; 2048],
+        cartridge: load_cartridge(rom),
+        ppu_state: PPUState::new(),
+      },
     }
   }
 
   pub fn step(&mut self) {
-    self.cpu.step(&self.prg_rom, &mut self.memory);
+    self.cpu.step(&mut self.state);
+    self.state.ppu_state.tick();
+    self.state.ppu_state.tick();
+    self.state.ppu_state.tick();
   }
 }
