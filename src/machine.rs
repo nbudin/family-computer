@@ -33,6 +33,10 @@ impl Machine {
     }
   }
 
+  pub fn reset(&mut self) {
+    self.cpu.reset(&mut self.state);
+  }
+
   pub fn step(&mut self) {
     self.cpu.step(&mut self.state);
     self.state.ppu_state.tick();

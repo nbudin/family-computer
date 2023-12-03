@@ -43,12 +43,19 @@ impl CPU {
       negative_flag: false,
       break_flag: false,
       zero_flag: false,
-      pc: 0x8000,
+      pc: 0,
       a: 0,
       x: 0,
       y: 0,
       s: 0xfd,
     }
+  }
+
+  pub fn reset(&mut self, state: &mut MachineState) {
+    let low = self.get_mem(0xfffc, state);
+    let high = self.get_mem(0xfffd, state);
+    let reset_vector = (u16::from(high) << 8) + u16::from(low);
+    self.set_pc(&Operand::Absolute(reset_vector))
   }
 
   fn operand_to_addr(&self, op: &Operand, state: &mut MachineState) -> u16 {

@@ -90,7 +90,9 @@ impl PPUState {
     self.data_bus
   }
 
-  pub fn write_bus(&mut self, register: PPURegister, value: u8) {}
+  pub fn write_bus(&mut self, register: PPURegister, value: u8) {
+    todo!();
+  }
 
   pub fn tick(&mut self) {
     if self.x < 341 {
