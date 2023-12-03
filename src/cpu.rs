@@ -51,52 +51,53 @@ impl CPU {
     }
   }
 
-  pub fn eval_operand(&self, op: &Operand, state: &mut MachineState) -> u8 {
+  fn operand_to_addr(&self, op: &Operand, state: &mut MachineState) -> u16 {
     match op {
-      Operand::Accumulator => self.a,
-      Operand::Immediate(value) => *value,
-      Operand::ZeroPage(addr) => self.get_mem(u16::from(*addr), state),
-      Operand::ZeroPageX(addr) => self.get_mem(u16::from(self.x.wrapping_add(*addr)), state),
-      Operand::ZeroPageY(addr) => self.get_mem(u16::from(self.x.wrapping_add(*addr)), state),
-      Operand::Absolute(addr) => self.get_mem(*addr, state),
-      Operand::AbsoluteX(addr) => self.get_mem(*addr + u16::from(self.x), state),
-      Operand::AbsoluteY(addr) => self.get_mem(*addr + u16::from(self.y), state),
+      Operand::ZeroPage(addr) => u16::from(*addr),
+      Operand::ZeroPageX(addr) => u16::from(self.x.wrapping_add(*addr)),
+      Operand::ZeroPageY(addr) => u16::from(self.x.wrapping_add(*addr)),
+      Operand::Absolute(addr) => *addr,
+      Operand::AbsoluteX(addr) => *addr + u16::from(self.x),
+      Operand::AbsoluteY(addr) => *addr + u16::from(self.y),
       Operand::Indirect(addr) => {
         let low = self.get_mem(*addr, state);
         let high = self.get_mem(*addr + 1, state);
-        let target_addr = (u16::from(high) << 8) + u16::from(low);
-        self.get_mem(target_addr, state)
+        (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectX(addr) => {
         let addr_location = self.x.wrapping_add(*addr);
         let low = self.get_mem(u16::from(addr_location), state);
         let high = self.get_mem(u16::from(addr_location.wrapping_add(1)), state);
-        let target_addr = (u16::from(high) << 8) + u16::from(low);
-        self.get_mem(target_addr, state)
+        (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectY(addr) => {
         let low = self.get_mem(u16::from(*addr), state);
         let high = self.get_mem(u16::from(addr.wrapping_add(1)), state);
-        let target_addr = (u16::from(high) << 8) + u16::from(low);
-        self.get_mem(target_addr + u16::from(self.y), state)
+        (u16::from(high) << 8) + u16::from(low)
       }
       _ => {
-        panic!("Unknown addressing mode: {:?}", op);
+        panic!("{:?} is not an address", op)
       }
+    }
+  }
+
+  pub fn eval_operand(&self, op: &Operand, state: &mut MachineState) -> u8 {
+    match op {
+      Operand::Accumulator => self.a,
+      Operand::Immediate(value) => *value,
+      _ => self.get_mem(self.operand_to_addr(op, state), state),
     }
   }
 
   pub fn set_operand(&mut self, op: &Operand, value: u8, state: &mut MachineState) {
-    match op {
-      Operand::Absolute(addr) => self.set_mem(*addr, value, state),
-      _ => {
-        panic!("Unknown addressing mode: {:?}", op);
-      }
-    }
+    self.set_mem(self.operand_to_addr(op, state), value, state);
   }
 
   pub fn set_pc(&mut self, addr: &Operand) {
     match addr {
+      Operand::Absolute(addr) => {
+        self.pc = *addr;
+      }
       Operand::Relative(offset) => {
         (self.pc, _) = self.pc.overflowing_add_signed(i16::from(*offset));
       }
@@ -106,11 +107,28 @@ impl CPU {
     }
   }
 
+  fn push_stack(&mut self, value: u8, state: &mut MachineState) {
+    self.set_mem(u16::from(self.s) + 0x100, value, state);
+    self.s -= 1;
+  }
+
+  fn pull_stack(&mut self, state: &mut MachineState) -> u8 {
+    self.s += 1;
+    self.get_mem(u16::from(self.s) + 0x100, state)
+  }
+
   pub fn step(&mut self, state: &mut MachineState) {
     let instruction = self.load_instruction(state);
     println!("{:?}", instruction);
 
     match instruction {
+      Instruction::AND(op) => {
+        let value = self.eval_operand(&op, state);
+        self.a = self.a & value;
+        self.zero_flag = self.a == 0;
+        self.negative_flag = (self.a & (1 << 7)) > 0;
+      }
+
       Instruction::BCC(addr) => {
         if !self.carry_flag {
           self.set_pc(&addr);
@@ -127,6 +145,13 @@ impl CPU {
         if self.zero_flag {
           self.set_pc(&addr);
         }
+      }
+
+      Instruction::BIT(addr) => {
+        let value = self.eval_operand(&addr, state);
+        self.zero_flag = (value & self.a) == 0;
+        self.overflow_flag = (value & (1 << 6)) > 0;
+        self.negative_flag = (value & (1 << 7)) > 0;
       }
 
       Instruction::BMI(addr) => {
@@ -201,6 +226,13 @@ impl CPU {
         self.negative_flag = (self.y.wrapping_sub(value) & 0b10000000) > 0;
       }
 
+      Instruction::DEC(op) => {
+        let value = self.eval_operand(&op, state).wrapping_sub(1);
+        self.set_operand(&op, value, state);
+        self.zero_flag = value == 0;
+        self.negative_flag = (value & 0b10000000) > 0;
+      }
+
       Instruction::DEX => {
         self.x = self.x.wrapping_sub(1);
         self.zero_flag = self.x == 0;
@@ -209,6 +241,25 @@ impl CPU {
 
       Instruction::DEY => {
         self.y = self.y.wrapping_sub(1);
+        self.zero_flag = self.y == 0;
+        self.negative_flag = (self.y & 0b10000000) > 0;
+      }
+
+      Instruction::INC(op) => {
+        let value = self.eval_operand(&op, state).wrapping_add(1);
+        self.set_operand(&op, value, state);
+        self.zero_flag = value == 0;
+        self.negative_flag = (value & 0b10000000) > 0;
+      }
+
+      Instruction::INX => {
+        self.x = self.x.wrapping_add(1);
+        self.zero_flag = self.x == 0;
+        self.negative_flag = (self.x & 0b10000000) > 0;
+      }
+
+      Instruction::INY => {
+        self.y = self.y.wrapping_add(1);
         self.zero_flag = self.y == 0;
         self.negative_flag = (self.y & 0b10000000) > 0;
       }
@@ -231,6 +282,41 @@ impl CPU {
         self.negative_flag = (self.y & 0b10000000) > 0;
       }
 
+      Instruction::JMP(addr) => {
+        self.set_pc(&addr);
+      }
+
+      Instruction::JSR(addr) => {
+        let low: u8 = (self.pc % 256).try_into().unwrap();
+        let high: u8 = (self.pc >> 8).try_into().unwrap();
+        self.push_stack(high, state);
+        self.push_stack(low, state);
+        self.set_pc(&addr);
+      }
+
+      Instruction::PHA => {
+        self.push_stack(self.a, state);
+      }
+
+      Instruction::ORA(op) => {
+        let value = self.eval_operand(&op, state);
+        self.a = self.a | value;
+        self.zero_flag = self.a == 0;
+        self.negative_flag = (self.a & (1 << 7)) > 0;
+      }
+
+      Instruction::PLA => {
+        self.a = self.pull_stack(state);
+        self.zero_flag = self.a == 0;
+        self.negative_flag = (self.a & 0b10000000) > 0;
+      }
+
+      Instruction::RTS => {
+        let low = self.pull_stack(state);
+        let high = self.pull_stack(state);
+        self.set_pc(&Operand::Absolute((u16::from(high) << 8) + u16::from(low)));
+      }
+
       Instruction::SEC => {
         self.carry_flag = true;
       }
@@ -247,8 +333,46 @@ impl CPU {
         self.set_operand(&addr, self.a, state);
       }
 
+      Instruction::STX(addr) => {
+        self.set_operand(&addr, self.x, state);
+      }
+
+      Instruction::STY(addr) => {
+        self.set_operand(&addr, self.y, state);
+      }
+
+      Instruction::TAX => {
+        self.x = self.a;
+        self.zero_flag = self.x == 0;
+        self.negative_flag = (self.x & (1 << 6)) > 0;
+      }
+
+      Instruction::TAY => {
+        self.y = self.a;
+        self.zero_flag = self.y == 0;
+        self.negative_flag = (self.y & (1 << 6)) > 0;
+      }
+
+      Instruction::TSX => {
+        self.x = self.s;
+        self.zero_flag = self.x == 0;
+        self.negative_flag = (self.x & (1 << 6)) > 0;
+      }
+
+      Instruction::TXA => {
+        self.a = self.x;
+        self.zero_flag = self.a == 0;
+        self.negative_flag = (self.a & (1 << 6)) > 0;
+      }
+
       Instruction::TXS => {
         self.s = self.x;
+      }
+
+      Instruction::TYA => {
+        self.a = self.y;
+        self.zero_flag = self.a == 0;
+        self.negative_flag = (self.a & (1 << 6)) > 0;
       }
 
       #[allow(unreachable_patterns)]

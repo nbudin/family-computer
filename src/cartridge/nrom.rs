@@ -46,6 +46,9 @@ impl Cartridge for NROM {
   }
 
   fn set_mem(&mut self, addr: u16, value: u8) {
-    todo!()
+    if addr < 0x8000 {
+      self.state.prg_ram[usize::from(addr) % (8 * 1024)] = value;
+    } else {
+    }
   }
 }
