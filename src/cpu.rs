@@ -1,23 +1,11 @@
-use crate::{instructions::Instruction, machine::MachineState};
+use crate::{instructions::Instruction, machine::MachineState, operand::Operand};
 
 #[derive(Debug)]
-pub enum Operand {
-  Accumulator,
-  Immediate(u8),
-  Absolute(u16),
-  AbsoluteX(u16),
-  AbsoluteY(u16),
-  ZeroPage(u8),
-  ZeroPageX(u8),
-  ZeroPageY(u8),
-  Indirect(u16),
-  IndirectX(u8),
-  IndirectY(u8),
-  Relative(i8),
-}
+pub struct CPU;
 
 #[derive(Debug)]
-pub struct CPU {
+pub struct CPUState {
+  pub wait_cycles: u8,
   pub pc: u16,
   pub a: u8,
   pub x: u8,
@@ -33,9 +21,10 @@ pub struct CPU {
   pub carry_flag: bool,
 }
 
-impl CPU {
+impl CPUState {
   pub fn new() -> Self {
     Self {
+      wait_cycles: 0,
       interrupt_flag: false,
       carry_flag: false,
       decimal_flag: false,
@@ -51,53 +40,8 @@ impl CPU {
     }
   }
 
-  pub fn reset(&mut self, state: &mut MachineState) {
-    let low = self.get_mem(0xfffc, state);
-    let high = self.get_mem(0xfffd, state);
-    let reset_vector = (u16::from(high) << 8) + u16::from(low);
-    self.set_pc(&Operand::Absolute(reset_vector))
-  }
-
-  fn operand_to_addr(&self, op: &Operand, state: &mut MachineState) -> u16 {
-    match op {
-      Operand::ZeroPage(addr) => u16::from(*addr),
-      Operand::ZeroPageX(addr) => u16::from(self.x.wrapping_add(*addr)),
-      Operand::ZeroPageY(addr) => u16::from(self.x.wrapping_add(*addr)),
-      Operand::Absolute(addr) => *addr,
-      Operand::AbsoluteX(addr) => *addr + u16::from(self.x),
-      Operand::AbsoluteY(addr) => *addr + u16::from(self.y),
-      Operand::Indirect(addr) => {
-        let low = self.get_mem(*addr, state);
-        let high = self.get_mem(*addr + 1, state);
-        (u16::from(high) << 8) + u16::from(low)
-      }
-      Operand::IndirectX(addr) => {
-        let addr_location = self.x.wrapping_add(*addr);
-        let low = self.get_mem(u16::from(addr_location), state);
-        let high = self.get_mem(u16::from(addr_location.wrapping_add(1)), state);
-        (u16::from(high) << 8) + u16::from(low)
-      }
-      Operand::IndirectY(addr) => {
-        let low = self.get_mem(u16::from(*addr), state);
-        let high = self.get_mem(u16::from(addr.wrapping_add(1)), state);
-        (u16::from(high) << 8) + u16::from(low)
-      }
-      _ => {
-        panic!("{:?} is not an address", op)
-      }
-    }
-  }
-
-  pub fn eval_operand(&self, op: &Operand, state: &mut MachineState) -> u8 {
-    match op {
-      Operand::Accumulator => self.a,
-      Operand::Immediate(value) => *value,
-      _ => self.get_mem(self.operand_to_addr(op, state), state),
-    }
-  }
-
-  pub fn set_operand(&mut self, op: &Operand, value: u8, state: &mut MachineState) {
-    self.set_mem(self.operand_to_addr(op, state), value, state);
+  pub fn set_operand(&self, op: &Operand, value: u8, state: &MachineState) {
+    state.set_mem(op.get_addr(self, state), value);
   }
 
   pub fn set_pc(&mut self, addr: &Operand) {
@@ -106,7 +50,8 @@ impl CPU {
         self.pc = *addr;
       }
       Operand::Relative(offset) => {
-        (self.pc, _) = self.pc.overflowing_add_signed(i16::from(*offset));
+        let (new_pc, _) = self.pc.overflowing_add_signed(i16::from(*offset));
+        self.pc = new_pc;
       }
       _ => {
         panic!("Unknown addressing mode: {:?}", addr);
@@ -114,24 +59,31 @@ impl CPU {
     }
   }
 
-  fn push_stack(&mut self, value: u8, state: &mut MachineState) {
-    self.set_mem(u16::from(self.s) + 0x100, value, state);
+  fn push_stack(&mut self, value: u8, state: &MachineState) {
+    state.set_mem(u16::from(self.s) + 0x100, value);
     self.s -= 1;
   }
 
-  fn pull_stack(&mut self, state: &mut MachineState) -> u8 {
+  fn pull_stack(&mut self, state: &MachineState) -> u8 {
     self.s += 1;
-    self.get_mem(u16::from(self.s) + 0x100, state)
+    state.get_mem(u16::from(self.s) + 0x100)
   }
 
-  pub fn step(&mut self, state: &mut MachineState) {
+  pub fn step(&mut self, state: &MachineState) {
+    if self.wait_cycles > 0 {
+      self.wait_cycles -= 1;
+      return;
+    }
+
     let instruction = self.load_instruction(state);
     println!("{:?}", instruction);
 
+    self.wait_cycles = instruction.base_cycles();
+
     match instruction {
       Instruction::AND(op) => {
-        let value = self.eval_operand(&op, state);
-        self.a = self.a & value;
+        let value = op.eval(self, state);
+        self.a &= value;
         self.zero_flag = self.a == 0;
         self.negative_flag = (self.a & (1 << 7)) > 0;
       }
@@ -155,7 +107,7 @@ impl CPU {
       }
 
       Instruction::BIT(addr) => {
-        let value = self.eval_operand(&addr, state);
+        let value = addr.eval(self, state);
         self.zero_flag = (value & self.a) == 0;
         self.overflow_flag = (value & (1 << 6)) > 0;
         self.negative_flag = (value & (1 << 7)) > 0;
@@ -213,28 +165,30 @@ impl CPU {
       }
 
       Instruction::CMP(op) => {
-        let value = self.eval_operand(&op, state);
+        let value = op.eval(self, state);
         self.carry_flag = self.a >= value;
         self.zero_flag = self.a == value;
         self.negative_flag = (self.a.wrapping_sub(value) & 0b10000000) > 0;
       }
 
       Instruction::CPX(op) => {
-        let value = self.eval_operand(&op, state);
-        self.carry_flag = self.x >= value;
-        self.zero_flag = self.x == value;
-        self.negative_flag = (self.x.wrapping_sub(value) & 0b10000000) > 0;
+        let value = op.eval(self, state);
+        let x = self.x;
+        self.carry_flag = x >= value;
+        self.zero_flag = x == value;
+        self.negative_flag = (x.wrapping_sub(value) & 0b10000000) > 0;
       }
 
       Instruction::CPY(op) => {
-        let value = self.eval_operand(&op, state);
-        self.carry_flag = self.y >= value;
-        self.zero_flag = self.y == value;
-        self.negative_flag = (self.y.wrapping_sub(value) & 0b10000000) > 0;
+        let value = op.eval(self, state);
+        let y = self.y;
+        self.carry_flag = y >= value;
+        self.zero_flag = y == value;
+        self.negative_flag = (y.wrapping_sub(value) & 0b10000000) > 0;
       }
 
       Instruction::DEC(op) => {
-        let value = self.eval_operand(&op, state).wrapping_sub(1);
+        let value = op.eval(self, state).wrapping_sub(1);
         self.set_operand(&op, value, state);
         self.zero_flag = value == 0;
         self.negative_flag = (value & 0b10000000) > 0;
@@ -242,18 +196,22 @@ impl CPU {
 
       Instruction::DEX => {
         self.x = self.x.wrapping_sub(1);
-        self.zero_flag = self.x == 0;
-        self.negative_flag = (self.x & 0b10000000) > 0;
+
+        let x = self.x;
+        self.zero_flag = x == 0;
+        self.negative_flag = (x & 0b10000000) > 0;
       }
 
       Instruction::DEY => {
         self.y = self.y.wrapping_sub(1);
-        self.zero_flag = self.y == 0;
-        self.negative_flag = (self.y & 0b10000000) > 0;
+
+        let y = self.y;
+        self.zero_flag = y == 0;
+        self.negative_flag = (y & 0b10000000) > 0;
       }
 
       Instruction::INC(op) => {
-        let value = self.eval_operand(&op, state).wrapping_add(1);
+        let value = op.eval(self, state).wrapping_add(1);
         self.set_operand(&op, value, state);
         self.zero_flag = value == 0;
         self.negative_flag = (value & 0b10000000) > 0;
@@ -261,8 +219,10 @@ impl CPU {
 
       Instruction::INX => {
         self.x = self.x.wrapping_add(1);
-        self.zero_flag = self.x == 0;
-        self.negative_flag = (self.x & 0b10000000) > 0;
+
+        let x = self.x;
+        self.zero_flag = x == 0;
+        self.negative_flag = (x & 0b10000000) > 0;
       }
 
       Instruction::INY => {
@@ -272,19 +232,19 @@ impl CPU {
       }
 
       Instruction::LDA(addr) => {
-        self.a = self.eval_operand(&addr, state);
+        self.a = addr.eval(self, state);
         self.zero_flag = self.a == 0;
         self.negative_flag = (self.a & 0b10000000) > 0;
       }
 
       Instruction::LDX(addr) => {
-        self.x = self.eval_operand(&addr, state);
+        self.x = addr.eval(self, state);
         self.zero_flag = self.x == 0;
         self.negative_flag = (self.x & 0b10000000) > 0;
       }
 
       Instruction::LDY(addr) => {
-        self.y = self.eval_operand(&addr, state);
+        self.y = addr.eval(self, state);
         self.zero_flag = self.y == 0;
         self.negative_flag = (self.y & 0b10000000) > 0;
       }
@@ -306,7 +266,7 @@ impl CPU {
       }
 
       Instruction::ORA(op) => {
-        let value = self.eval_operand(&op, state);
+        let value = op.eval(self, state);
         self.a = self.a | value;
         self.zero_flag = self.a == 0;
         self.negative_flag = (self.a & (1 << 7)) > 0;

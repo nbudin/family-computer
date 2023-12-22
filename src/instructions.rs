@@ -1,7 +1,4 @@
-use crate::{
-  cpu::{Operand, CPU},
-  machine::MachineState,
-};
+use crate::{cpu::CPUState, machine::MachineState, operand::Operand};
 
 #[derive(Debug)]
 pub enum Instruction {
@@ -63,26 +60,277 @@ pub enum Instruction {
   TYA,
 }
 
-impl CPU {
-  fn load_byte(&mut self, state: &mut MachineState) -> u8 {
-    let byte = self.get_mem(self.pc, state);
+impl Instruction {
+  pub fn base_cycles(&self) -> u8 {
+    match self {
+      Instruction::ADC(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 4,
+        Operand::AbsoluteY(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::IndirectX(_) => 6,
+        Operand::IndirectY(_) => 5,
+        _ => panic!("Invalid operand for ADC: {:?}", op),
+      },
+      Instruction::AND(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 4,
+        Operand::AbsoluteY(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::IndirectX(_) => 6,
+        Operand::IndirectY(_) => 5,
+        _ => panic!("Invalid operand for AND: {:?}", op),
+      },
+      Instruction::ASL(op) => match op {
+        Operand::Accumulator => 2,
+        Operand::Absolute(_) => 6,
+        Operand::AbsoluteX(_) => 7,
+        Operand::ZeroPage(_) => 5,
+        Operand::ZeroPageX(_) => 6,
+        _ => panic!("Invalid operand for ASL: {:?}", op),
+      },
+      Instruction::BCC(op) => match op {
+        Operand::Relative(_) => 2,
+        _ => panic!("Invalid operand for BCC: {:?}", op),
+      },
+      Instruction::BCS(op) => match op {
+        Operand::Relative(_) => 2,
+        _ => panic!("Invalid operand for BCS: {:?}", op),
+      },
+      Instruction::BEQ(op) => match op {
+        Operand::Relative(_) => 2,
+        _ => panic!("Invalid operand for BEQ: {:?}", op),
+      },
+      Instruction::BIT(op) => match op {
+        Operand::Absolute(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        _ => panic!("Invalid operand for BIT: {:?}", op),
+      },
+      Instruction::BMI(op) => match op {
+        Operand::Relative(_) => 2,
+        _ => panic!("Invalid operand for BMI: {:?}", op),
+      },
+      Instruction::BNE(op) => match op {
+        Operand::Relative(_) => 2,
+        _ => panic!("Invalid operand for BNE: {:?}", op),
+      },
+      Instruction::BPL(op) => match op {
+        Operand::Relative(_) => 2,
+        _ => panic!("Invalid operand for BPL: {:?}", op),
+      },
+      Instruction::BRK => 7,
+      Instruction::BVC(op) => match op {
+        Operand::Relative(_) => 2,
+        _ => panic!("Invalid operand for BVC: {:?}", op),
+      },
+      Instruction::BVS(op) => match op {
+        Operand::Relative(_) => 2,
+        _ => panic!("Invalid operand for BVS: {:?}", op),
+      },
+      Instruction::CLC => 2,
+      Instruction::CLD => 2,
+      Instruction::CLI => 2,
+      Instruction::CLV => 2,
+      Instruction::CMP(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 4,
+        Operand::AbsoluteY(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::IndirectX(_) => 6,
+        Operand::IndirectY(_) => 5,
+        _ => panic!("Invalid operand for CMP: {:?}", op),
+      },
+      Instruction::CPX(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        _ => panic!("Invalid operand for CPX: {:?}", op),
+      },
+      Instruction::CPY(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        _ => panic!("Invalid operand for CPY: {:?}", op),
+      },
+      Instruction::DEC(op) => match op {
+        Operand::Absolute(_) => 6,
+        Operand::AbsoluteX(_) => 7,
+        Operand::ZeroPage(_) => 5,
+        Operand::ZeroPageX(_) => 6,
+        _ => panic!("Invalid operand for DEC: {:?}", op),
+      },
+      Instruction::DEX => 2,
+      Instruction::DEY => 2,
+      Instruction::EOR(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 4,
+        Operand::AbsoluteY(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::IndirectX(_) => 6,
+        Operand::IndirectY(_) => 5,
+        _ => panic!("Invalid operand for EOR: {:?}", op),
+      },
+      Instruction::INC(op) => match op {
+        Operand::Absolute(_) => 6,
+        Operand::AbsoluteX(_) => 7,
+        Operand::ZeroPage(_) => 5,
+        Operand::ZeroPageX(_) => 6,
+        _ => panic!("Invalid operand for INC: {:?}", op),
+      },
+      Instruction::INX => 2,
+      Instruction::INY => 2,
+      Instruction::JMP(op) => match op {
+        Operand::Absolute(_) => 3,
+        Operand::Indirect(_) => 5,
+        _ => panic!("Invalid operand for JMP: {:?}", op),
+      },
+      Instruction::JSR(op) => match op {
+        Operand::Absolute(_) => 6,
+        _ => panic!("Invalid operand for JSR: {:?}", op),
+      },
+      Instruction::LDA(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 4,
+        Operand::AbsoluteY(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::IndirectX(_) => 6,
+        Operand::IndirectY(_) => 5,
+        _ => panic!("Invalid operand for LDA: {:?}", op),
+      },
+      Instruction::LDX(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteY(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageY(_) => 4,
+        _ => panic!("Invalid operand for LDX: {:?}", op),
+      },
+      Instruction::LDY(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        _ => panic!("Invalid operand for LDY: {:?}", op),
+      },
+      Instruction::LSR(op) => match op {
+        Operand::Accumulator => 2,
+        Operand::ZeroPage(_) => 5,
+        Operand::ZeroPageX(_) => 6,
+        Operand::Absolute(_) => 6,
+        Operand::AbsoluteX(_) => 7,
+        _ => panic!("Invalid operand for LSR: {:?}", op),
+      },
+      Instruction::NOP => 2,
+      Instruction::ORA(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 4,
+        Operand::AbsoluteY(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::IndirectX(_) => 6,
+        Operand::IndirectY(_) => 5,
+        _ => panic!("Invalid operand for ORA: {:?}", op),
+      },
+      Instruction::PHA => 3,
+      Instruction::PHP => 3,
+      Instruction::PLA => 4,
+      Instruction::PLP => 4,
+      Instruction::ROL(op) => match op {
+        Operand::Accumulator => 2,
+        Operand::Absolute(_) => 6,
+        Operand::AbsoluteX(_) => 7,
+        Operand::ZeroPage(_) => 5,
+        Operand::ZeroPageX(_) => 6,
+        _ => panic!("Invalid operand for ROL: {:?}", op),
+      },
+      Instruction::ROR(op) => match op {
+        Operand::Accumulator => 2,
+        Operand::Absolute(_) => 6,
+        Operand::AbsoluteX(_) => 7,
+        Operand::ZeroPage(_) => 5,
+        Operand::ZeroPageX(_) => 6,
+        _ => panic!("Invalid operand for ROR: {:?}", op),
+      },
+      Instruction::RTI => 6,
+      Instruction::RTS => 6,
+      Instruction::SBC(op) => match op {
+        Operand::Immediate(_) => 2,
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 4,
+        Operand::AbsoluteY(_) => 4,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::IndirectX(_) => 6,
+        Operand::IndirectY(_) => 5,
+        _ => panic!("Invalid operand for SBC: {:?}", op),
+      },
+      Instruction::SEC => 2,
+      Instruction::SED => 2,
+      Instruction::SEI => 2,
+      Instruction::STA(op) => match op {
+        Operand::Absolute(_) => 4,
+        Operand::AbsoluteX(_) => 5,
+        Operand::AbsoluteY(_) => 5,
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::IndirectX(_) => 6,
+        Operand::IndirectY(_) => 6,
+        _ => panic!("Invalid operand for STA: {:?}", op),
+      },
+      Instruction::STX(op) => match op {
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageY(_) => 4,
+        Operand::Absolute(_) => 4,
+        _ => panic!("Invalid operand for STX: {:?}", op),
+      },
+      Instruction::STY(op) => match op {
+        Operand::ZeroPage(_) => 3,
+        Operand::ZeroPageX(_) => 4,
+        Operand::Absolute(_) => 4,
+        _ => panic!("Invalid operand for STY: {:?}", op),
+      },
+      Instruction::TAX => 2,
+      Instruction::TAY => 2,
+      Instruction::TSX => 2,
+      Instruction::TXA => 2,
+      Instruction::TXS => 2,
+      Instruction::TYA => 2,
+    }
+  }
+}
+
+impl CPUState {
+  fn load_byte(&mut self, state: &MachineState) -> u8 {
+    let byte = state.get_mem(self.pc);
     self.pc += 1;
     byte
   }
 
-  fn load_addr(&mut self, state: &mut MachineState) -> u16 {
+  fn load_addr(&mut self, state: &MachineState) -> u16 {
     let low = self.load_byte(state);
     let high = self.load_byte(state);
 
     (u16::from(high) << 8) + u16::from(low)
   }
 
-  fn load_offset(&mut self, state: &mut MachineState) -> i8 {
+  fn load_offset(&mut self, state: &MachineState) -> i8 {
     let byte = self.load_byte(state);
     byte as i8
   }
 
-  pub fn load_instruction(&mut self, state: &mut MachineState) -> Instruction {
+  pub fn load_instruction(&mut self, state: &MachineState) -> Instruction {
     let opcode = self.load_byte(state);
 
     match opcode {

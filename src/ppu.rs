@@ -1,4 +1,4 @@
-use crate::cpu::Operand;
+use crate::operand::Operand;
 
 pub enum PPURegister {
   PPUCTRL,

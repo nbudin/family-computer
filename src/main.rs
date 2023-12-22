@@ -4,7 +4,7 @@ mod gfx;
 mod ines_rom;
 mod instructions;
 mod machine;
-mod memory_map;
+mod operand;
 mod ppu;
 
 use std::path::Path;
@@ -14,7 +14,7 @@ use machine::Machine;
 use winit::{
   error::EventLoopError,
   event::{Event, WindowEvent},
-  event_loop::{ControlFlow, EventLoop},
+  event_loop::EventLoop,
   window::WindowBuilder,
 };
 
@@ -43,20 +43,22 @@ pub async fn run() -> Result<(), EventLoopError> {
 
   let mut gfx_state = GfxState::new(window).await;
   let mut prev_time = std::time::Instant::now();
+  let mut ticks_per_frame: u64 = 0;
 
   event_loop.run(|event, target| {
     #[cfg(wasm_platform)]
     wasm::log_event(&log_list, &event);
 
     match event {
-      Event::AboutToWait => {
+      Event::AboutToWait => loop {
+        let delta_time = (std::time::Instant::now() - prev_time).as_secs_f32();
         machine.step();
-        if (std::time::Instant::now() - prev_time).as_secs_f32() > (1.0 / 60.0) {
+        ticks_per_frame += 1;
+        if delta_time > (1.0 / 60.0) {
           gfx_state.update();
-        } else {
-          target.set_control_flow(ControlFlow::Poll);
+          break;
         }
-      }
+      },
       Event::WindowEvent { window_id, event } if window_id == gfx_state.window().id() => {
         if !gfx_state.input(&event) {
           match event {
@@ -72,6 +74,7 @@ pub async fn run() -> Result<(), EventLoopError> {
               prev_time = current_time;
 
               gfx_state.update();
+              ticks_per_frame = 0;
               match gfx_state.render(delta_time) {
                 Ok(_) => {}
                 // Reconfigure the surface if lost
