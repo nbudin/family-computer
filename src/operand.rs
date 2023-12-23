@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{cpu::CPU, machine::Machine};
 
 #[derive(Debug)]
@@ -69,6 +71,25 @@ impl Operand {
         let (addr, page_boundary_crossed) = self.get_addr(cpu_state, machine_state);
         (machine_state.get_mem(addr), page_boundary_crossed)
       }
+    }
+  }
+}
+
+impl Display for Operand {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Operand::Accumulator => f.write_str(""),
+      Operand::Immediate(value) => f.write_fmt(format_args!("#${:02x}", value)),
+      Operand::Absolute(addr) => f.write_fmt(format_args!("${:04x}", addr)),
+      Operand::AbsoluteX(addr) => f.write_fmt(format_args!("${:04x},x", addr)),
+      Operand::AbsoluteY(addr) => f.write_fmt(format_args!("${:04x},y", addr)),
+      Operand::ZeroPage(zp_addr) => f.write_fmt(format_args!("${:02x}", zp_addr)),
+      Operand::ZeroPageX(zp_addr) => f.write_fmt(format_args!("${:02x},x", zp_addr)),
+      Operand::ZeroPageY(zp_addr) => f.write_fmt(format_args!("${:02x},y", zp_addr)),
+      Operand::Indirect(addr) => f.write_fmt(format_args!("(${:04x})", addr)),
+      Operand::IndirectX(zp_addr) => f.write_fmt(format_args!("(${:02x},x)", zp_addr)),
+      Operand::IndirectY(zp_addr) => f.write_fmt(format_args!("(${:02x}),y", zp_addr)),
+      Operand::Relative(offset) => f.write_fmt(format_args!("{}", offset)),
     }
   }
 }

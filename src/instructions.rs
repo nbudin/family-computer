@@ -1,6 +1,10 @@
+use std::fmt::Display;
+
+use strum::IntoStaticStr;
+
 use crate::{cpu::CPU, machine::Machine, operand::Operand};
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum Instruction {
   ADC(Operand),
   AND(Operand),
@@ -437,7 +441,7 @@ impl CPU {
       0xad => Instruction::LDA(Operand::Absolute(self.load_addr(state))),
       0xae => Instruction::LDX(Operand::Absolute(self.load_addr(state))),
       0xb0 => Instruction::BCS(Operand::Relative(self.load_offset(state))),
-      0xb1 => Instruction::LDX(Operand::IndirectY(self.load_byte(state))),
+      0xb1 => Instruction::LDA(Operand::IndirectY(self.load_byte(state))),
       0xb4 => Instruction::LDY(Operand::ZeroPageX(self.load_byte(state))),
       0xb5 => Instruction::LDA(Operand::ZeroPageX(self.load_byte(state))),
       0xb6 => Instruction::LDX(Operand::ZeroPageY(self.load_byte(state))),
@@ -489,6 +493,74 @@ impl CPU {
       _ => {
         panic!("Unknown opcode {:#04x}", opcode);
       }
+    }
+  }
+}
+
+impl Display for Instruction {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let instruction_name: &'static str = self.into();
+
+    match self {
+      Instruction::ADC(op)
+      | Instruction::AND(op)
+      | Instruction::ASL(op)
+      | Instruction::BCC(op)
+      | Instruction::BCS(op)
+      | Instruction::BEQ(op)
+      | Instruction::BIT(op)
+      | Instruction::BMI(op)
+      | Instruction::BNE(op)
+      | Instruction::BPL(op)
+      | Instruction::BVC(op)
+      | Instruction::BVS(op)
+      | Instruction::CMP(op)
+      | Instruction::CPX(op)
+      | Instruction::CPY(op)
+      | Instruction::DEC(op)
+      | Instruction::EOR(op)
+      | Instruction::INC(op)
+      | Instruction::JMP(op)
+      | Instruction::JSR(op)
+      | Instruction::LDA(op)
+      | Instruction::LDX(op)
+      | Instruction::LDY(op)
+      | Instruction::LSR(op)
+      | Instruction::ORA(op)
+      | Instruction::ROL(op)
+      | Instruction::ROR(op)
+      | Instruction::SBC(op)
+      | Instruction::STA(op)
+      | Instruction::STX(op)
+      | Instruction::STY(op) => {
+        f.write_fmt(format_args!("{} {}", instruction_name.to_lowercase(), op))
+      }
+
+      Instruction::BRK
+      | Instruction::CLC
+      | Instruction::CLD
+      | Instruction::CLI
+      | Instruction::CLV
+      | Instruction::DEX
+      | Instruction::DEY
+      | Instruction::INX
+      | Instruction::INY
+      | Instruction::NOP
+      | Instruction::PHA
+      | Instruction::PHP
+      | Instruction::PLA
+      | Instruction::PLP
+      | Instruction::RTI
+      | Instruction::RTS
+      | Instruction::SEC
+      | Instruction::SED
+      | Instruction::SEI
+      | Instruction::TAX
+      | Instruction::TAY
+      | Instruction::TSX
+      | Instruction::TXA
+      | Instruction::TXS
+      | Instruction::TYA => f.write_str(instruction_name.to_lowercase().as_str()),
     }
   }
 }
