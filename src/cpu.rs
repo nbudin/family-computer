@@ -370,6 +370,18 @@ impl CPU {
         self.negative_flag = (self.y & 0b10000000) > 0;
       }
 
+      Instruction::JMP(addr) => {
+        self.set_pc(&addr, state);
+      }
+
+      Instruction::JSR(addr) => {
+        let low: u8 = (self.pc % 256).try_into().unwrap();
+        let high: u8 = (self.pc >> 8).try_into().unwrap();
+        self.push_stack(high, state);
+        self.push_stack(low, state);
+        self.set_pc(&addr, state);
+      }
+
       Instruction::LDA(addr) => {
         let (value, page_boundary_crossed) = addr.eval(self, state);
         if page_boundary_crossed {
@@ -407,21 +419,7 @@ impl CPU {
         self.negative_flag = false; // always false because we always put a 0 into bit 7
       }
 
-      Instruction::JMP(addr) => {
-        self.set_pc(&addr, state);
-      }
-
-      Instruction::JSR(addr) => {
-        let low: u8 = (self.pc % 256).try_into().unwrap();
-        let high: u8 = (self.pc >> 8).try_into().unwrap();
-        self.push_stack(high, state);
-        self.push_stack(low, state);
-        self.set_pc(&addr, state);
-      }
-
-      Instruction::PHA => {
-        self.push_stack(self.a, state);
-      }
+      Instruction::NOP => {}
 
       Instruction::ORA(op) => {
         let (value, page_boundary_crossed) = op.eval(self, state);
@@ -431,6 +429,10 @@ impl CPU {
         self.a = self.a | value;
         self.zero_flag = self.a == 0;
         self.negative_flag = (self.a & (1 << 7)) > 0;
+      }
+
+      Instruction::PHA => {
+        self.push_stack(self.a, state);
       }
 
       Instruction::PHP => {
@@ -562,11 +564,6 @@ impl CPU {
         self.a = self.y;
         self.zero_flag = self.a == 0;
         self.negative_flag = (self.a & (1 << 6)) > 0;
-      }
-
-      #[allow(unreachable_patterns)]
-      _ => {
-        panic!("Unknown instruction: {:?}", instruction);
       }
     }
   }
