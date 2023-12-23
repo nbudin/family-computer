@@ -1,5 +1,8 @@
+use glyphon::cosmic_text::rustybuzz::ttf_parser::kern;
+
 use crate::{machine::Machine, operand::Operand};
 
+#[derive(Debug)]
 pub enum PPURegister {
   PPUCTRL,
   PPUMASK,
@@ -90,7 +93,20 @@ impl PPU {
     self.data_bus
   }
 
-  pub fn write_bus(&mut self, register: PPURegister, value: u8) {}
+  pub fn write_bus(&mut self, register: PPURegister, value: u8) {
+    match register {
+      PPURegister::PPUCTRL => {
+        self.nmi_enable = (value & (1 << 7)) > 0;
+        self.master_slave = (value & (1 << 6)) > 0;
+        self.sprite_height = (value & (1 << 5)) > 0;
+        self.background_tile_select = (value & (1 << 4)) > 0;
+        // TODO low 4 bits
+
+        self.data_bus = value;
+      }
+      _ => {}
+    }
+  }
 
   pub fn tick(&mut self, machine: &Machine) {
     if self.x < 341 {
