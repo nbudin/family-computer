@@ -1,4 +1,4 @@
-use crate::operand::Operand;
+use crate::{machine::Machine, operand::Operand};
 
 pub enum PPURegister {
   PPUCTRL,
@@ -43,9 +43,9 @@ impl PPURegister {
 }
 
 #[derive(Debug)]
-pub struct PPUState {
-  x: u16,
-  y: u16,
+pub struct PPU {
+  pub x: u16,
+  pub y: u16,
   nmi_enable: bool,
   master_slave: bool,
   sprite_height: bool,
@@ -58,7 +58,7 @@ pub struct PPUState {
   data_bus: u8,
 }
 
-impl PPUState {
+impl PPU {
   pub fn new() -> Self {
     Self {
       x: 0,
@@ -92,12 +92,15 @@ impl PPUState {
 
   pub fn write_bus(&mut self, register: PPURegister, value: u8) {}
 
-  pub fn tick(&mut self) {
+  pub fn tick(&mut self, machine: &Machine) {
     if self.x < 341 {
       self.x += 1;
     } else if self.y < 262 {
       self.x = 0;
       self.y += 1;
+      if self.y == 240 && self.nmi_enable {
+        machine.nmi();
+      }
     } else {
       self.x = 0;
       self.y = 0;

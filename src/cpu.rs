@@ -1,10 +1,7 @@
-use crate::{instructions::Instruction, machine::MachineState, operand::Operand};
+use crate::{instructions::Instruction, machine::Machine, operand::Operand};
 
 #[derive(Debug)]
-pub struct CPU;
-
-#[derive(Debug)]
-pub struct CPUState {
+pub struct CPU {
   pub wait_cycles: u8,
   pub pc: u16,
   pub a: u8,
@@ -19,9 +16,12 @@ pub struct CPUState {
   pub interrupt_flag: bool,
   pub zero_flag: bool,
   pub carry_flag: bool,
+
+  pub nmi_set: bool,
+  pub irq_set: bool,
 }
 
-impl CPUState {
+impl CPU {
   pub fn new() -> Self {
     Self {
       wait_cycles: 0,
@@ -37,10 +37,22 @@ impl CPUState {
       x: 0,
       y: 0,
       s: 0xfd,
+      nmi_set: false,
+      irq_set: false,
     }
   }
 
-  pub fn set_operand(&self, op: &Operand, value: u8, state: &MachineState) {
+  pub fn get_status_register(&self) -> u8 {
+    (if self.negative_flag { 1 << 7 } else { 0 })
+      + (if self.overflow_flag { 1 << 6 } else { 0 })
+      + (1 << 5)
+      + (if self.break_flag { 1 << 4 } else { 0 })
+      + (if self.decimal_flag { 1 << 3 } else { 0 })
+      + (if self.interrupt_flag { 1 << 2 } else { 0 })
+      + (if self.carry_flag { 1 } else { 0 })
+  }
+
+  pub fn set_operand(&self, op: &Operand, value: u8, state: &Machine) {
     state.set_mem(op.get_addr(self, state).0, value);
   }
 
@@ -62,24 +74,48 @@ impl CPUState {
     }
   }
 
-  fn push_stack(&mut self, value: u8, state: &MachineState) {
+  fn push_stack(&mut self, value: u8, state: &Machine) {
     state.set_mem(u16::from(self.s) + 0x100, value);
     self.s -= 1;
   }
 
-  fn pull_stack(&mut self, state: &MachineState) -> u8 {
+  fn pull_stack(&mut self, state: &Machine) -> u8 {
     self.s += 1;
     state.get_mem(u16::from(self.s) + 0x100)
   }
 
-  pub fn step(&mut self, state: &MachineState) {
+  pub fn reset(&mut self, state: &Machine) {
+    let low = state.get_mem(0xfffc);
+    let high = state.get_mem(0xfffd);
+    let reset_vector = (u16::from(high) << 8) + u16::from(low);
+
+    self.set_pc(&Operand::Absolute(reset_vector));
+  }
+
+  pub fn tick(&mut self, state: &Machine) {
+    if self.nmi_set {
+      self.push_stack(u8::try_from((self.pc & 0xff00) >> 8).unwrap(), state);
+      self.push_stack(u8::try_from(self.pc & 0xff).unwrap(), state);
+      self.push_stack(self.get_status_register(), state);
+
+      let low = state.get_mem(0xfffa);
+      let high = state.get_mem(0xfffb);
+      let nmi_vector = (u16::from(high) << 8) + u16::from(low);
+
+      self.set_pc(&Operand::Absolute(nmi_vector));
+      self.interrupt_flag = true;
+      self.nmi_set = false;
+
+      self.wait_cycles = 6;
+      return;
+    }
+
     if self.wait_cycles > 0 {
       self.wait_cycles -= 1;
       return;
     }
 
     let instruction = self.load_instruction(state);
-    println!("{:?}", instruction);
 
     self.wait_cycles = instruction.base_cycles() - 1;
 

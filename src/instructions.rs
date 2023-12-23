@@ -1,4 +1,4 @@
-use crate::{cpu::CPUState, machine::MachineState, operand::Operand};
+use crate::{cpu::CPU, machine::Machine, operand::Operand};
 
 #[derive(Debug)]
 pub enum Instruction {
@@ -311,26 +311,26 @@ impl Instruction {
   }
 }
 
-impl CPUState {
-  fn load_byte(&mut self, state: &MachineState) -> u8 {
+impl CPU {
+  fn load_byte(&mut self, state: &Machine) -> u8 {
     let byte = state.get_mem(self.pc);
     self.pc += 1;
     byte
   }
 
-  fn load_addr(&mut self, state: &MachineState) -> u16 {
+  fn load_addr(&mut self, state: &Machine) -> u16 {
     let low = self.load_byte(state);
     let high = self.load_byte(state);
 
     (u16::from(high) << 8) + u16::from(low)
   }
 
-  fn load_offset(&mut self, state: &MachineState) -> i8 {
+  fn load_offset(&mut self, state: &Machine) -> i8 {
     let byte = self.load_byte(state);
     byte as i8
   }
 
-  pub fn load_instruction(&mut self, state: &MachineState) -> Instruction {
+  pub fn load_instruction(&mut self, state: &Machine) -> Instruction {
     let opcode = self.load_byte(state);
 
     match opcode {

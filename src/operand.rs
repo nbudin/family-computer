@@ -1,4 +1,4 @@
-use crate::{cpu::CPUState, machine::MachineState};
+use crate::{cpu::CPU, machine::Machine};
 
 #[derive(Debug)]
 pub enum Operand {
@@ -17,7 +17,7 @@ pub enum Operand {
 }
 
 impl Operand {
-  pub fn get_addr(&self, cpu_state: &CPUState, machine_state: &MachineState) -> (u16, bool) {
+  pub fn get_addr(&self, cpu_state: &CPU, machine_state: &Machine) -> (u16, bool) {
     let mut page_boundary_crossed = false;
     let result_addr = match self {
       Operand::ZeroPage(addr) => u16::from(*addr),
@@ -61,7 +61,7 @@ impl Operand {
     (result_addr, page_boundary_crossed)
   }
 
-  pub fn eval(&self, cpu_state: &CPUState, machine_state: &MachineState) -> (u8, bool) {
+  pub fn eval(&self, cpu_state: &CPU, machine_state: &Machine) -> (u8, bool) {
     match self {
       Operand::Accumulator => (cpu_state.a, false),
       Operand::Immediate(value) => (*value, false),

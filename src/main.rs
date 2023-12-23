@@ -14,7 +14,7 @@ use machine::Machine;
 use winit::{
   error::EventLoopError,
   event::{Event, WindowEvent},
-  event_loop::EventLoop,
+  event_loop::{ControlFlow, EventLoop},
   window::WindowBuilder,
 };
 
@@ -50,15 +50,15 @@ pub async fn run() -> Result<(), EventLoopError> {
     wasm::log_event(&log_list, &event);
 
     match event {
-      Event::AboutToWait => loop {
+      Event::AboutToWait => {
         let delta_time = (std::time::Instant::now() - prev_time).as_secs_f32();
         machine.step();
-        ticks_per_frame += 1;
         if delta_time > (1.0 / 60.0) {
           gfx_state.update();
-          break;
+        } else {
+          target.set_control_flow(ControlFlow::Poll);
         }
-      },
+      }
       Event::WindowEvent { window_id, event } if window_id == gfx_state.window().id() => {
         if !gfx_state.input(&event) {
           match event {

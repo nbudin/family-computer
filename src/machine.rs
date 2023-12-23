@@ -1,31 +1,63 @@
-use std::{rc::Rc, sync::RwLock};
+use std::{
+  rc::Rc,
+  sync::{RwLock, RwLockWriteGuard},
+};
 
 use crate::{
   cartridge::{load_cartridge, BoxCartridge},
-  cpu::CPUState,
+  cpu::CPU,
   ines_rom::INESRom,
-  operand::Operand,
-  ppu::{PPURegister, PPUState},
+  ppu::{PPURegister, PPU},
 };
 
 pub type WorkRAM = [u8; 2048];
 
 #[derive(Debug)]
-pub struct MachineState {
+pub struct Machine {
   pub work_ram: Rc<RwLock<WorkRAM>>,
   pub cartridge: Rc<RwLock<BoxCartridge>>,
-  pub cpu_state: Rc<RwLock<CPUState>>,
-  pub ppu_state: Rc<RwLock<PPUState>>,
+  pub cpu_state: Rc<RwLock<CPU>>,
+  pub ppu_state: Rc<RwLock<PPU>>,
 }
 
-impl MachineState {
-  pub fn reset(&mut self) {
-    let low = self.get_mem(0xfffc);
-    let high = self.get_mem(0xfffd);
-    let reset_vector = (u16::from(high) << 8) + u16::from(low);
+impl Machine {
+  pub fn from_rom(rom: INESRom) -> Self {
+    Self {
+      work_ram: Rc::new(RwLock::new([0; 2048])),
+      cartridge: Rc::new(RwLock::new(load_cartridge(rom))),
+      cpu_state: Rc::new(RwLock::new(CPU::new())),
+      ppu_state: Rc::new(RwLock::new(PPU::new())),
+    }
+  }
 
+  pub fn step(&mut self) {
+    loop {
+      {
+        let mut cpu_state = (*self.cpu_state).write().unwrap();
+        cpu_state.tick(&self);
+      }
+
+      {
+        let mut ppu_state = (*self.ppu_state).write().unwrap();
+        ppu_state.tick(&self);
+        ppu_state.tick(&self);
+        ppu_state.tick(&self);
+
+        if ppu_state.x == 0 && ppu_state.y == 0 {
+          break;
+        }
+      }
+    }
+  }
+
+  pub fn nmi(&self) {
     let mut cpu_state = (*self.cpu_state).write().unwrap();
-    cpu_state.set_pc(&Operand::Absolute(reset_vector));
+    cpu_state.nmi_set = true;
+  }
+
+  pub fn reset(&self) {
+    let mut cpu_state = (*self.cpu_state).write().unwrap();
+    cpu_state.reset(self);
   }
 
   pub fn get_mem(&self, addr: u16) -> u8 {
@@ -63,36 +95,5 @@ impl MachineState {
       let mut cartridge = (*self.cartridge).write().unwrap();
       cartridge.set_mem(addr, value)
     }
-  }
-}
-
-pub struct Machine {
-  pub state: MachineState,
-}
-
-impl Machine {
-  pub fn from_rom(rom: INESRom) -> Self {
-    Self {
-      state: MachineState {
-        work_ram: Rc::new(RwLock::new([0; 2048])),
-        cartridge: Rc::new(RwLock::new(load_cartridge(rom))),
-        cpu_state: Rc::new(RwLock::new(CPUState::new())),
-        ppu_state: Rc::new(RwLock::new(PPUState::new())),
-      },
-    }
-  }
-
-  pub fn step(&mut self) {
-    let mut cpu_state = (*self.state.cpu_state).write().unwrap();
-    cpu_state.step(&self.state);
-
-    let mut ppu_state = (*self.state.ppu_state).write().unwrap();
-    ppu_state.tick();
-    ppu_state.tick();
-    ppu_state.tick();
-  }
-
-  pub fn reset(&mut self) {
-    self.state.reset();
   }
 }
