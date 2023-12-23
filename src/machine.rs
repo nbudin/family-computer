@@ -25,7 +25,7 @@ impl MachineState {
     let reset_vector = (u16::from(high) << 8) + u16::from(low);
 
     let mut cpu_state = (*self.cpu_state).write().unwrap();
-    cpu_state.set_pc(&Operand::Absolute(reset_vector))
+    cpu_state.set_pc(&Operand::Absolute(reset_vector));
   }
 
   pub fn get_mem(&self, addr: u16) -> u8 {

@@ -41,17 +41,20 @@ impl CPUState {
   }
 
   pub fn set_operand(&self, op: &Operand, value: u8, state: &MachineState) {
-    state.set_mem(op.get_addr(self, state), value);
+    state.set_mem(op.get_addr(self, state).0, value);
   }
 
-  pub fn set_pc(&mut self, addr: &Operand) {
+  pub fn set_pc(&mut self, addr: &Operand) -> bool {
     match addr {
       Operand::Absolute(addr) => {
         self.pc = *addr;
+        false
       }
       Operand::Relative(offset) => {
         let (new_pc, _) = self.pc.overflowing_add_signed(i16::from(*offset));
+        let page_boundary_crossed = (new_pc & 0xff00) != (self.pc & 0xff00);
         self.pc = new_pc;
+        page_boundary_crossed
       }
       _ => {
         panic!("Unknown addressing mode: {:?}", addr);
@@ -78,11 +81,14 @@ impl CPUState {
     let instruction = self.load_instruction(state);
     println!("{:?}", instruction);
 
-    self.wait_cycles = instruction.base_cycles();
+    self.wait_cycles = instruction.base_cycles() - 1;
 
     match instruction {
       Instruction::AND(op) => {
-        let value = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(self, state);
+        if page_boundary_crossed {
+          self.wait_cycles += 1;
+        }
         self.a &= value;
         self.zero_flag = self.a == 0;
         self.negative_flag = (self.a & (1 << 7)) > 0;
@@ -90,24 +96,33 @@ impl CPUState {
 
       Instruction::BCC(addr) => {
         if !self.carry_flag {
-          self.set_pc(&addr);
+          self.wait_cycles += 1;
+          if self.set_pc(&addr) {
+            self.wait_cycles += 1;
+          }
         }
       }
 
       Instruction::BCS(addr) => {
         if self.carry_flag {
-          self.set_pc(&addr);
+          self.wait_cycles += 1;
+          if self.set_pc(&addr) {
+            self.wait_cycles += 1;
+          }
         }
       }
 
       Instruction::BEQ(addr) => {
         if self.zero_flag {
-          self.set_pc(&addr);
+          self.wait_cycles += 1;
+          if self.set_pc(&addr) {
+            self.wait_cycles += 1;
+          }
         }
       }
 
       Instruction::BIT(addr) => {
-        let value = addr.eval(self, state);
+        let (value, _) = addr.eval(self, state);
         self.zero_flag = (value & self.a) == 0;
         self.overflow_flag = (value & (1 << 6)) > 0;
         self.negative_flag = (value & (1 << 7)) > 0;
@@ -115,19 +130,29 @@ impl CPUState {
 
       Instruction::BMI(addr) => {
         if self.negative_flag {
-          self.set_pc(&addr);
+          self.wait_cycles += 1;
+          if self.set_pc(&addr) {
+            self.wait_cycles += 1;
+          }
         }
       }
 
       Instruction::BNE(addr) => {
         if !self.zero_flag {
-          self.set_pc(&addr);
+          self.wait_cycles += 1;
+          if self.set_pc(&addr) {
+            self.wait_cycles += 1;
+          }
         }
       }
 
       Instruction::BPL(addr) => {
         if !self.negative_flag {
-          self.set_pc(&addr)
+          self.wait_cycles += 1;
+          self.wait_cycles += 1;
+          if self.set_pc(&addr) {
+            self.wait_cycles += 1;
+          }
         }
       }
 
@@ -138,13 +163,19 @@ impl CPUState {
 
       Instruction::BVC(addr) => {
         if !self.overflow_flag {
-          self.set_pc(&addr);
+          self.wait_cycles += 1;
+          if self.set_pc(&addr) {
+            self.wait_cycles += 1;
+          }
         }
       }
 
       Instruction::BVS(addr) => {
         if self.overflow_flag {
-          self.set_pc(&addr);
+          self.wait_cycles += 1;
+          if self.set_pc(&addr) {
+            self.wait_cycles += 1;
+          }
         }
       }
 
@@ -165,14 +196,17 @@ impl CPUState {
       }
 
       Instruction::CMP(op) => {
-        let value = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(self, state);
+        if page_boundary_crossed {
+          self.wait_cycles += 1;
+        }
         self.carry_flag = self.a >= value;
         self.zero_flag = self.a == value;
         self.negative_flag = (self.a.wrapping_sub(value) & 0b10000000) > 0;
       }
 
       Instruction::CPX(op) => {
-        let value = op.eval(self, state);
+        let (value, _) = op.eval(self, state);
         let x = self.x;
         self.carry_flag = x >= value;
         self.zero_flag = x == value;
@@ -180,7 +214,7 @@ impl CPUState {
       }
 
       Instruction::CPY(op) => {
-        let value = op.eval(self, state);
+        let (value, _) = op.eval(self, state);
         let y = self.y;
         self.carry_flag = y >= value;
         self.zero_flag = y == value;
@@ -188,7 +222,7 @@ impl CPUState {
       }
 
       Instruction::DEC(op) => {
-        let value = op.eval(self, state).wrapping_sub(1);
+        let value = op.eval(self, state).0.wrapping_sub(1);
         self.set_operand(&op, value, state);
         self.zero_flag = value == 0;
         self.negative_flag = (value & 0b10000000) > 0;
@@ -211,7 +245,7 @@ impl CPUState {
       }
 
       Instruction::INC(op) => {
-        let value = op.eval(self, state).wrapping_add(1);
+        let value = op.eval(self, state).0.wrapping_add(1);
         self.set_operand(&op, value, state);
         self.zero_flag = value == 0;
         self.negative_flag = (value & 0b10000000) > 0;
@@ -232,19 +266,31 @@ impl CPUState {
       }
 
       Instruction::LDA(addr) => {
-        self.a = addr.eval(self, state);
+        let (value, page_boundary_crossed) = addr.eval(self, state);
+        if page_boundary_crossed {
+          self.wait_cycles += 1;
+        }
+        self.a = value;
         self.zero_flag = self.a == 0;
         self.negative_flag = (self.a & 0b10000000) > 0;
       }
 
       Instruction::LDX(addr) => {
-        self.x = addr.eval(self, state);
+        let (value, page_boundary_crossed) = addr.eval(self, state);
+        if page_boundary_crossed {
+          self.wait_cycles += 1;
+        }
+        self.x = value;
         self.zero_flag = self.x == 0;
         self.negative_flag = (self.x & 0b10000000) > 0;
       }
 
       Instruction::LDY(addr) => {
-        self.y = addr.eval(self, state);
+        let (value, page_boundary_crossed) = addr.eval(self, state);
+        if page_boundary_crossed {
+          self.wait_cycles += 1;
+        }
+        self.y = value;
         self.zero_flag = self.y == 0;
         self.negative_flag = (self.y & 0b10000000) > 0;
       }
@@ -266,7 +312,10 @@ impl CPUState {
       }
 
       Instruction::ORA(op) => {
-        let value = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(self, state);
+        if page_boundary_crossed {
+          self.wait_cycles += 1;
+        }
         self.a = self.a | value;
         self.zero_flag = self.a == 0;
         self.negative_flag = (self.a & (1 << 7)) > 0;
