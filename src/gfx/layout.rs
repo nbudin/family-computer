@@ -37,7 +37,7 @@ impl Layout {
           .family(glyphon::Family::Name("Pixel NES"))
           .color(glyphon::Color::rgb(255, 255, 255)),
         glyphon::Shaping::Basic,
-        Align::Right,
+        Align::Left,
       )
     };
 
@@ -62,11 +62,13 @@ impl Layout {
   }
 
   fn calculate_fps_label_bounds(window: &Window) -> TextBounds {
+    let crt_screen_size: PhysicalSize<i32> = Self::calculate_crt_screen_size(window).cast();
+
     TextBounds {
       top: 0,
-      left: 0,
-      right: (window.inner_size().cast::<f64>().width * window.scale_factor()) as i32,
-      bottom: (window.inner_size().cast::<f64>().height * window.scale_factor()) as i32,
+      left: crt_screen_size.width + 10,
+      right: window.inner_size().width as i32,
+      bottom: window.inner_size().height as i32,
     }
   }
 
