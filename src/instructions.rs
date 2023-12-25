@@ -317,7 +317,7 @@ impl Instruction {
 
 impl CPU {
   fn load_byte(&mut self, state: &Machine) -> u8 {
-    let byte = state.get_mem(self.pc);
+    let byte = state.get_cpu_mem(self.pc);
     self.pc += 1;
     byte
   }

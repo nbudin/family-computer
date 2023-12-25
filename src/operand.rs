@@ -37,19 +37,19 @@ impl Operand {
         new_addr
       }
       Operand::Indirect(addr) => {
-        let low = machine_state.get_mem(*addr);
-        let high = machine_state.get_mem(*addr + 1);
+        let low = machine_state.get_cpu_mem(*addr);
+        let high = machine_state.get_cpu_mem(*addr + 1);
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectX(addr) => {
         let addr_location = cpu_state.x.wrapping_add(*addr);
-        let low = machine_state.get_mem(u16::from(addr_location));
-        let high = machine_state.get_mem(u16::from(addr_location.wrapping_add(1)));
+        let low = machine_state.get_cpu_mem(u16::from(addr_location));
+        let high = machine_state.get_cpu_mem(u16::from(addr_location.wrapping_add(1)));
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectY(zp_addr) => {
-        let low = machine_state.get_mem(u16::from(*zp_addr));
-        let high = machine_state.get_mem(u16::from(zp_addr.wrapping_add(1)));
+        let low = machine_state.get_cpu_mem(u16::from(*zp_addr));
+        let high = machine_state.get_cpu_mem(u16::from(zp_addr.wrapping_add(1)));
         let addr = (u16::from(high) << 8) + u16::from(low);
         let new_addr = addr + u16::from(cpu_state.y);
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
@@ -69,7 +69,7 @@ impl Operand {
       Operand::Immediate(value) => (*value, false),
       _ => {
         let (addr, page_boundary_crossed) = self.get_addr(cpu_state, machine_state);
-        (machine_state.get_mem(addr), page_boundary_crossed)
+        (machine_state.get_cpu_mem(addr), page_boundary_crossed)
       }
     }
   }

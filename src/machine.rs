@@ -1,18 +1,15 @@
-use std::{
-  rc::Rc,
-  sync::{RwLock, RwLockWriteGuard},
-};
+use std::{rc::Rc, sync::RwLock};
 
 use crate::{
   cartridge::{load_cartridge, BoxCartridge},
   cpu::CPU,
+  gfx::gfx_state::GfxState,
   ines_rom::INESRom,
   ppu::{PPURegister, PPU},
 };
 
 pub type WorkRAM = [u8; 2048];
 
-#[derive(Debug)]
 pub struct Machine {
   pub work_ram: Rc<RwLock<WorkRAM>>,
   pub cartridge: Rc<RwLock<BoxCartridge>>,
@@ -30,7 +27,7 @@ impl Machine {
     }
   }
 
-  pub fn step(&mut self) {
+  pub fn step(&mut self, gfx_state: &mut GfxState) {
     loop {
       {
         let mut cpu_state = (*self.cpu_state).write().unwrap();
@@ -39,9 +36,9 @@ impl Machine {
 
       {
         let mut ppu_state = (*self.ppu_state).write().unwrap();
-        ppu_state.tick(&self);
-        ppu_state.tick(&self);
-        ppu_state.tick(&self);
+        ppu_state.tick(&self, gfx_state);
+        ppu_state.tick(&self, gfx_state);
+        ppu_state.tick(&self, gfx_state);
 
         if ppu_state.x == 0 && ppu_state.y == 0 {
           break;
@@ -60,7 +57,7 @@ impl Machine {
     cpu_state.reset(self);
   }
 
-  pub fn get_mem(&self, addr: u16) -> u8 {
+  pub fn get_cpu_mem(&self, addr: u16) -> u8 {
     if addr < 0x2000 {
       let actual_address = addr % 0x800;
       self.work_ram.read().unwrap()[usize::from(actual_address)]
@@ -74,11 +71,11 @@ impl Machine {
       // TODO: CPU test mode
       0
     } else {
-      self.cartridge.read().unwrap().get_mem(addr)
+      self.cartridge.read().unwrap().get_cpu_mem(addr)
     }
   }
 
-  pub fn set_mem(&self, addr: u16, value: u8) {
+  pub fn set_cpu_mem(&self, addr: u16, value: u8) {
     if addr < 0x2000 {
       let actual_address = addr % 0x800;
       self.work_ram.write().unwrap()[usize::from(actual_address)] = value;
@@ -93,7 +90,7 @@ impl Machine {
       ()
     } else {
       let mut cartridge = (*self.cartridge).write().unwrap();
-      cartridge.set_mem(addr, value)
+      cartridge.set_cpu_mem(addr, value)
     }
   }
 }

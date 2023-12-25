@@ -71,7 +71,7 @@ impl CPU {
   pub fn set_operand(&mut self, op: &Operand, value: u8, state: &Machine) {
     match op {
       Operand::Accumulator => self.a = value,
-      _ => state.set_mem(op.get_addr(self, state).0, value),
+      _ => state.set_cpu_mem(op.get_addr(self, state).0, value),
     }
   }
 
@@ -88,8 +88,8 @@ impl CPU {
         page_boundary_crossed
       }
       Operand::Indirect(addr_location) => {
-        let low = state.get_mem(*addr_location);
-        let high = state.get_mem(*addr_location + 1);
+        let low = state.get_cpu_mem(*addr_location);
+        let high = state.get_cpu_mem(*addr_location + 1);
         let addr = (u16::from(high) << 8) + u16::from(low);
         self.pc = addr;
         false
@@ -101,18 +101,18 @@ impl CPU {
   }
 
   fn push_stack(&mut self, value: u8, state: &Machine) {
-    state.set_mem(u16::from(self.s) + 0x100, value);
+    state.set_cpu_mem(u16::from(self.s) + 0x100, value);
     self.s -= 1;
   }
 
   fn pull_stack(&mut self, state: &Machine) -> u8 {
     self.s += 1;
-    state.get_mem(u16::from(self.s) + 0x100)
+    state.get_cpu_mem(u16::from(self.s) + 0x100)
   }
 
   pub fn reset(&mut self, state: &Machine) {
-    let low = state.get_mem(0xfffc);
-    let high = state.get_mem(0xfffd);
+    let low = state.get_cpu_mem(0xfffc);
+    let high = state.get_cpu_mem(0xfffd);
     let reset_vector = (u16::from(high) << 8) + u16::from(low);
 
     self.set_pc(&Operand::Absolute(reset_vector), state);
@@ -124,8 +124,8 @@ impl CPU {
       self.push_stack(u8::try_from(self.pc & 0xff).unwrap(), state);
       self.push_stack(self.get_status_register(), state);
 
-      let low = state.get_mem(0xfffa);
-      let high = state.get_mem(0xfffb);
+      let low = state.get_cpu_mem(0xfffa);
+      let high = state.get_cpu_mem(0xfffb);
       let nmi_vector = (u16::from(high) << 8) + u16::from(low);
 
       self.set_pc(&Operand::Absolute(nmi_vector), state);

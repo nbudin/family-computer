@@ -5,9 +5,10 @@ mod ines_rom;
 mod instructions;
 mod machine;
 mod operand;
+mod palette;
 mod ppu;
 
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 use ines_rom::INESRom;
 use machine::Machine;
@@ -23,12 +24,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::gfx::gfx_state::GfxState;
 
-pub async fn run() -> Result<(), EventLoopError> {
-  let rom = INESRom::from_file(&Path::new("smb.nes")).unwrap();
-  println!("Using mapper ID {}", rom.mapper_id);
-  let mut machine = Machine::from_rom(rom);
-  machine.reset();
+const FRAME_DURATION_SECS: f32 = 1.0 / 60.0;
 
+pub async fn run() -> Result<(), EventLoopError> {
   let event_loop = EventLoop::new()?;
   let builder = WindowBuilder::new().with_title("Family Computer");
   #[cfg(wasm_platform)]
@@ -42,8 +40,15 @@ pub async fn run() -> Result<(), EventLoopError> {
   let log_list = wasm::insert_canvas_and_create_log_list(&window);
 
   let mut gfx_state = GfxState::new(window).await;
+
+  let rom = INESRom::from_file(&Path::new("smb.nes")).unwrap();
+  println!("Using mapper ID {}", rom.mapper_id);
+  let mut machine = Machine::from_rom(rom);
+  machine.reset();
+
   let mut prev_time = std::time::Instant::now();
-  let mut ticks_per_frame: u64 = 0;
+
+  event_loop.set_control_flow(ControlFlow::Poll);
 
   event_loop.run(|event, target| {
     #[cfg(wasm_platform)]
@@ -51,13 +56,13 @@ pub async fn run() -> Result<(), EventLoopError> {
 
     match event {
       Event::AboutToWait => {
-        let delta_time = (std::time::Instant::now() - prev_time).as_secs_f32();
-        machine.step();
-        if delta_time > (1.0 / 60.0) {
-          gfx_state.update();
-        } else {
-          target.set_control_flow(ControlFlow::Poll);
-        }
+        machine.step(&mut gfx_state);
+
+        let sleepy_time =
+          (prev_time + Duration::from_secs_f32(FRAME_DURATION_SECS)) - std::time::Instant::now();
+        std::thread::sleep(sleepy_time);
+
+        gfx_state.window().request_redraw();
       }
       Event::WindowEvent { window_id, event } if window_id == gfx_state.window().id() => {
         if !gfx_state.input(&event) {
@@ -73,9 +78,8 @@ pub async fn run() -> Result<(), EventLoopError> {
               let delta_time = current_time - prev_time;
               prev_time = current_time;
 
-              gfx_state.update();
-              ticks_per_frame = 0;
-              match gfx_state.render(delta_time) {
+              gfx_state.update(delta_time);
+              match gfx_state.render() {
                 Ok(_) => {}
                 // Reconfigure the surface if lost
                 Err(wgpu::SurfaceError::Lost) => gfx_state.resize(gfx_state.size),

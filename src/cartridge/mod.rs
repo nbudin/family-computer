@@ -10,8 +10,10 @@ pub trait Cartridge: Debug {
   fn from_ines_rom(rom: INESRom) -> Self
   where
     Self: Sized;
-  fn get_mem(&self, addr: u16) -> u8;
-  fn set_mem(&mut self, addr: u16, value: u8);
+  fn get_cpu_mem(&self, addr: u16) -> u8;
+  fn set_cpu_mem(&mut self, addr: u16, value: u8);
+  fn get_ppu_mem(&self, addr: u16) -> u8;
+  fn set_ppu_mem(&mut self, addr: u16, value: u8);
 }
 
 pub type BoxCartridge = Box<dyn Cartridge>;
