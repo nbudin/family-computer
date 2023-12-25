@@ -22,7 +22,7 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use crate::gfx::gfx_state::GfxState;
+use crate::gfx::{gfx_state::GfxState, layout::Layout};
 
 const FRAME_DURATION_SECS: f32 = 1.0 / 60.0;
 
@@ -39,7 +39,7 @@ pub async fn run() -> Result<(), EventLoopError> {
   #[cfg(wasm_platform)]
   let log_list = wasm::insert_canvas_and_create_log_list(&window);
 
-  let mut gfx_state = GfxState::new(window).await;
+  let mut gfx_state = GfxState::new(window, |data| Layout::new(data)).await;
 
   let rom = INESRom::from_file(&Path::new("smb.nes")).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
@@ -56,7 +56,9 @@ pub async fn run() -> Result<(), EventLoopError> {
 
     match event {
       Event::AboutToWait => {
-        machine.step(&mut gfx_state);
+        gfx_state.root.update_pixbuf(|pixbuf| {
+          machine.step(pixbuf);
+        });
 
         let sleepy_time =
           (prev_time + Duration::from_secs_f32(FRAME_DURATION_SECS)) - std::time::Instant::now();

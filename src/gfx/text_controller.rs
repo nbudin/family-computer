@@ -1,16 +1,18 @@
 use glyphon::{
-  Attrs, FontSystem, Metrics, RenderError, Resolution, Shaping, SwashCache, TextAtlas, TextBounds,
-  TextRenderer,
+  cosmic_text::Align, Attrs, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextAtlas,
+  TextBounds, TextRenderer,
 };
 use wgpu::MultisampleState;
 
-use super::label::Label;
+use super::{
+  label::Label,
+  node::{BoxError, Node, RenderablePrepareData},
+};
 
 pub type LabelID = usize;
 
 pub struct TextController {
   labels: Vec<Label>,
-  buffers: Vec<glyphon::Buffer>,
   text_renderer: TextRenderer,
   atlas: TextAtlas,
   swash_cache: SwashCache,
@@ -34,7 +36,6 @@ impl TextController {
 
     Self {
       labels: vec![],
-      buffers: vec![],
       text_renderer,
       atlas,
       swash_cache,
@@ -48,12 +49,9 @@ impl TextController {
     bounds: TextBounds,
     attrs: Attrs<'static>,
     shaping: Shaping,
+    align: Align,
   ) -> LabelID {
     let id = self.labels.len();
-
-    self
-      .labels
-      .push(Label::new(metrics, bounds, attrs, shaping));
 
     let mut text_buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
 
@@ -63,42 +61,55 @@ impl TextController {
       (bounds.bottom - bounds.top) as f32,
     );
 
-    self.buffers.push(text_buffer);
+    self.labels.push(Label::new(
+      metrics,
+      bounds,
+      attrs,
+      shaping,
+      text_buffer,
+      align,
+    ));
 
     id
   }
 
-  pub fn set_label_text(&mut self, label_id: LabelID, text: &str) {
-    self.buffers[label_id].set_text(
-      &mut self.font_system,
-      text,
-      self.labels[label_id].attrs,
-      self.labels[label_id].shaping,
-    );
-
-    self.buffers[label_id].shape_until_scroll(&mut self.font_system);
+  pub fn update_label<F: FnMut(&mut Label, &mut FontSystem) -> ()>(
+    &mut self,
+    label_id: LabelID,
+    mut f: F,
+  ) {
+    f(&mut self.labels[label_id], &mut self.font_system)
   }
+}
 
-  pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, resolution: Resolution) {
+impl Node for TextController {
+  fn prepare(&mut self, data: &RenderablePrepareData) -> Result<(), BoxError> {
+    let size = data.window.inner_size();
+
     self
       .text_renderer
       .prepare(
-        device,
-        queue,
+        &data.device,
+        &data.queue,
         &mut self.font_system,
         &mut self.atlas,
-        resolution,
+        Resolution {
+          width: size.width,
+          height: size.height,
+        },
         self
           .labels
           .iter()
-          .zip(self.buffers.iter())
-          .map(|(label, buffer)| label.text_area(buffer)),
+          .map(|label| label.text_area(&label.buffer)),
         &mut self.swash_cache,
       )
-      .unwrap();
+      .map_err(|err| Box::new(err) as BoxError)
   }
 
-  pub fn render<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) -> Result<(), RenderError> {
-    self.text_renderer.render(&self.atlas, pass)
+  fn render<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) -> Result<(), BoxError> {
+    self
+      .text_renderer
+      .render(&self.atlas, pass)
+      .map_err(|err| Box::new(err) as BoxError)
   }
 }

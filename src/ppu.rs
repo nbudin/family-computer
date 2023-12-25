@@ -1,8 +1,7 @@
+use bitfield_struct::bitfield;
+
 use crate::{
-  gfx::{
-    crt_screen::{BYTES_PER_PIXEL, PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_WIDTH},
-    gfx_state::GfxState,
-  },
+  gfx::crt_screen::{BYTES_PER_PIXEL, PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
   machine::Machine,
   operand::Operand,
   palette::PALETTE,
@@ -19,6 +18,45 @@ pub enum PPURegister {
   PPUADDR,
   PPUDATA,
   OAMDMA,
+}
+
+#[derive(Debug)]
+enum PPUAddressLatch {
+  Low,
+  High,
+}
+
+#[bitfield(u8)]
+pub struct PPUStatusRegister {
+  #[bits(5)]
+  _unused: usize,
+  sprite_overflow: bool,
+  sprite_zero_hit: bool,
+  vertical_blank: bool,
+}
+
+#[bitfield(u8)]
+pub struct PPUMaskRegister {
+  grayscale: bool,
+  render_background_left: bool,
+  render_sprites_left: bool,
+  render_background: bool,
+  render_sprites: bool,
+  enhance_red: bool,
+  enhance_green: bool,
+  enhance_blue: bool,
+}
+
+#[bitfield(u8)]
+pub struct PPUControlRegister {
+  nametable_x: bool,
+  nametable_y: bool,
+  increment_mode: bool,
+  pattern_sprite: bool,
+  pattern_background: bool,
+  sprite_size: bool,
+  slave_mode: bool,
+  enable_nmi: bool,
 }
 
 impl PPURegister {
@@ -55,16 +93,13 @@ impl PPURegister {
 pub struct PPU {
   pub x: u32,
   pub y: u32,
-  nmi_enable: bool,
-  master_slave: bool,
-  sprite_height: bool,
-  background_tile_select: bool,
-  increment_mode: bool,
-  sprite_overflow: bool,
-  even_frame: bool,
-  sprite0_hit: bool,
+  status: PPUStatusRegister,
+  mask: PPUMaskRegister,
+  control: PPUControlRegister,
   nametable_select: u8,
   data_bus: u8,
+  address_latch: PPUAddressLatch,
+  address: u16,
   pub palette_ram: [u8; 32],
 }
 
@@ -73,17 +108,14 @@ impl PPU {
     Self {
       x: 0,
       y: 0,
-      nmi_enable: false,
-      master_slave: false,
-      sprite_height: false,
-      background_tile_select: false,
-      increment_mode: false,
-      sprite0_hit: false,
-      sprite_overflow: false,
-      even_frame: false,
+      mask: PPUMaskRegister::new(),
+      control: PPUControlRegister::new(),
+      status: PPUStatusRegister::new(),
       nametable_select: 0,
       data_bus: 0,
       palette_ram: [0; 32],
+      address: 0,
+      address_latch: PPUAddressLatch::High,
     }
   }
 
@@ -104,30 +136,55 @@ impl PPU {
     }
   }
 
-  pub fn read_bus(&mut self, register: PPURegister) -> u8 {
+  pub fn read_bus(&mut self, machine: &Machine, register: PPURegister) -> u8 {
+    let mut result: u8 = 0;
+
     match register {
       PPURegister::PPUSTATUS => {
-        self.data_bus = (self.data_bus & 0b00011111)
-          + (if self.y > 239 { 1 << 7 } else { 0 })
-          + (if self.sprite0_hit { 1 << 6 } else { 0 })
-          + (if self.sprite_overflow { 1 << 5 } else { 0 })
+        result = (u8::from(self.status) & 0b11100000) | (self.data_bus & 0b00011111);
+        self.status.set_vertical_blank(false);
+        self.address_latch = PPUAddressLatch::High;
+      }
+      PPURegister::PPUDATA => {
+        result = self.data_bus;
+        self.data_bus = self.get_ppu_mem(machine, self.address);
+
+        if self.address > 0x3f00 {
+          // palette memory is read immediately
+          result = self.data_bus;
+        }
+
+        self.address += 1;
       }
       _ => {}
     }
 
-    self.data_bus
+    result
   }
 
-  pub fn write_bus(&mut self, register: PPURegister, value: u8) {
+  pub fn write_bus(&mut self, machine: &Machine, register: PPURegister, value: u8) {
     match register {
       PPURegister::PPUCTRL => {
-        self.nmi_enable = (value & (1 << 7)) > 0;
-        self.master_slave = (value & (1 << 6)) > 0;
-        self.sprite_height = (value & (1 << 5)) > 0;
-        self.background_tile_select = (value & (1 << 4)) > 0;
-        // TODO low 4 bits
-
+        self.control = value.into();
         self.data_bus = value;
+      }
+      PPURegister::PPUMASK => {
+        self.mask = value.into();
+        self.data_bus = value;
+      }
+      PPURegister::PPUADDR => match self.address_latch {
+        PPUAddressLatch::Low => {
+          self.address = (self.address & 0xff00) | u16::from(value);
+          self.address_latch = PPUAddressLatch::High;
+        }
+        PPUAddressLatch::High => {
+          self.address = (self.address & 0x00ff) | (u16::from(value) << 8);
+          self.address_latch = PPUAddressLatch::Low;
+        }
+      },
+      PPURegister::PPUDATA => {
+        self.set_ppu_mem(machine, self.address, value);
+        self.address += 1;
       }
       _ => {}
     }
@@ -152,12 +209,11 @@ impl PPU {
     self.palette_ram[17 + (palette_index * 4) + color_index]
   }
 
-  pub fn tick(&mut self, machine: &Machine, gfx_state: &mut GfxState) {
+  pub fn tick(&mut self, machine: &Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
     if self.x < PIXEL_BUFFER_WIDTH && self.y < PIXEL_BUFFER_HEIGHT {
       // Pixel is in the visible range of the CRT
       let offset = (self.x + (self.y * PIXEL_BUFFER_WIDTH)) * BYTES_PER_PIXEL;
-      let pixel = gfx_state
-        .get_pixbuf_mut()
+      let pixel = pixbuf
         .get_mut((offset as usize)..((offset + BYTES_PER_PIXEL) as usize))
         .unwrap();
       let color_index = self.get_tile_pixel(
@@ -167,9 +223,17 @@ impl PPU {
         (self.y / (PIXEL_BUFFER_HEIGHT / 8)) as u16,
       );
       let palette_color = PALETTE[color_index as usize];
-      // let palette_color = PALETTE[self.get_bg_palette_color(0, color_index.into()) as usize];
+      // let palette_color = PALETTE[self.get_sprite_palette_color(0, color_index.into()) as usize];
 
       pixel.copy_from_slice(&[palette_color[0], palette_color[1], palette_color[2], 255]);
+    }
+
+    // entering vblank
+    if self.x == 0 && self.y == 240 {
+      self.status.set_vertical_blank(true);
+      if self.control.enable_nmi() {
+        machine.nmi();
+      }
     }
 
     if self.x < 341 {
@@ -177,12 +241,11 @@ impl PPU {
     } else if self.y < 262 {
       self.x = 0;
       self.y += 1;
-      if self.y == 240 && self.nmi_enable {
-        machine.nmi();
-      }
     } else {
       self.x = 0;
       self.y = 0;
+
+      self.status.set_vertical_blank(false);
     }
   }
 }

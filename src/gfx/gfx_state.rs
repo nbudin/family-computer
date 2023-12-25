@@ -1,30 +1,24 @@
 use std::time::Duration;
 
-use glyphon::{Resolution, TextBounds};
 use winit::{event::WindowEvent, window::Window};
 
-use super::{
-  crt_screen::{CRTScreen, PIXEL_BUFFER_SIZE},
-  text_controller::{LabelID, TextController},
-};
+use super::node::{RenderablePrepareData, RootNode};
 
-pub struct GfxState {
+pub struct GfxState<R: RootNode> {
   surface: wgpu::Surface,
   device: wgpu::Device,
   queue: wgpu::Queue,
   config: wgpu::SurfaceConfiguration,
   pub size: winit::dpi::PhysicalSize<u32>,
+  pub root: R,
   // The window must be declared after the surface so
   // it gets dropped after it as the surface contains
   // unsafe references to the window's resources.
   window: Window,
-  crt_screen: CRTScreen,
-  text_controller: TextController,
-  fps_label_id: LabelID,
 }
 
-impl GfxState {
-  pub async fn new(window: Window) -> Self {
+impl<R: RootNode> GfxState<R> {
+  pub async fn new<F: FnOnce(&RenderablePrepareData) -> R>(window: Window, init_root: F) -> Self {
     let size = window.inner_size();
 
     // The instance is a handle to our GPU
@@ -89,27 +83,13 @@ impl GfxState {
     };
     surface.configure(&device, &config);
 
-    let crt_screen = CRTScreen::new(&device, config.format);
-    let mut text_controller = TextController::new(&device, &queue, config.format);
-
-    let fps_label_id = {
-      text_controller.add_label(
-        glyphon::Metrics {
-          font_size: 2.0,
-          line_height: 2.0,
-        },
-        TextBounds {
-          top: 0,
-          left: 0,
-          right: size.width.try_into().unwrap(),
-          bottom: size.height.try_into().unwrap(),
-        },
-        glyphon::Attrs::new()
-          .family(glyphon::Family::Name("Pixel NES"))
-          .color(glyphon::Color::rgb(255, 255, 255)),
-        glyphon::Shaping::Basic,
-      )
-    };
+    let root = init_root(&RenderablePrepareData {
+      surface: &surface,
+      device: &device,
+      queue: &queue,
+      config: &config,
+      window: &window,
+    });
 
     GfxState {
       surface,
@@ -118,9 +98,7 @@ impl GfxState {
       config,
       size,
       window,
-      crt_screen,
-      text_controller,
-      fps_label_id,
+      root,
     }
   }
 
@@ -134,6 +112,7 @@ impl GfxState {
       self.config.width = new_size.width;
       self.config.height = new_size.height;
       self.surface.configure(&self.device, &self.config);
+      self.root.resize(&self.window);
     }
   }
 
@@ -142,15 +121,8 @@ impl GfxState {
     false
   }
 
-  pub fn get_pixbuf_mut(&mut self) -> &mut [u8; PIXEL_BUFFER_SIZE] {
-    &mut self.crt_screen.next_frame
-  }
-
   pub fn update(&mut self, delta_time: Duration) {
-    self.text_controller.set_label_text(
-      self.fps_label_id,
-      format!("{:.02} FPS", 1.0 / delta_time.as_secs_f32()).as_str(),
-    );
+    self.root.update(delta_time);
   }
 
   pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -165,17 +137,15 @@ impl GfxState {
       });
 
     {
-      self
-        .crt_screen
-        .prepare(&self.queue, self.window.inner_size());
-      self.text_controller.prepare(
-        &self.device,
-        &self.queue,
-        Resolution {
-          width: self.size.width,
-          height: self.size.height,
-        },
-      );
+      let prepare_data = RenderablePrepareData {
+        surface: &self.surface,
+        device: &self.device,
+        queue: &self.queue,
+        config: &self.config,
+        window: &self.window,
+      };
+
+      self.root.prepare_recursive(&prepare_data).unwrap();
 
       let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Render Pass"),
@@ -195,8 +165,7 @@ impl GfxState {
         depth_stencil_attachment: None,
       });
 
-      self.crt_screen.render(&mut render_pass);
-      self.text_controller.render(&mut render_pass).unwrap();
+      self.root.render_recursive(&mut render_pass).unwrap();
     }
 
     // submit will accept anything that implements IntoIter

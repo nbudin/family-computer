@@ -3,7 +3,7 @@ use std::{rc::Rc, sync::RwLock};
 use crate::{
   cartridge::{load_cartridge, BoxCartridge},
   cpu::CPU,
-  gfx::gfx_state::GfxState,
+  gfx::crt_screen::PIXEL_BUFFER_SIZE,
   ines_rom::INESRom,
   ppu::{PPURegister, PPU},
 };
@@ -27,7 +27,7 @@ impl Machine {
     }
   }
 
-  pub fn step(&mut self, gfx_state: &mut GfxState) {
+  pub fn step(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
     loop {
       {
         let mut cpu_state = (*self.cpu_state).write().unwrap();
@@ -36,9 +36,9 @@ impl Machine {
 
       {
         let mut ppu_state = (*self.ppu_state).write().unwrap();
-        ppu_state.tick(&self, gfx_state);
-        ppu_state.tick(&self, gfx_state);
-        ppu_state.tick(&self, gfx_state);
+        ppu_state.tick(&self, pixbuf);
+        ppu_state.tick(&self, pixbuf);
+        ppu_state.tick(&self, pixbuf);
 
         if ppu_state.x == 0 && ppu_state.y == 0 {
           break;
@@ -63,7 +63,7 @@ impl Machine {
       self.work_ram.read().unwrap()[usize::from(actual_address)]
     } else if addr < 0x4000 {
       let mut ppu_state = (*self.ppu_state).write().unwrap();
-      ppu_state.read_bus(PPURegister::from_address(addr))
+      ppu_state.read_bus(self, PPURegister::from_address(addr))
     } else if addr < 0x4018 {
       // TODO APU and I/O registers
       0
@@ -81,7 +81,7 @@ impl Machine {
       self.work_ram.write().unwrap()[usize::from(actual_address)] = value;
     } else if addr < 0x4000 {
       let mut ppu_state = (*self.ppu_state).write().unwrap();
-      ppu_state.write_bus(PPURegister::from_address(addr), value)
+      ppu_state.write_bus(self, PPURegister::from_address(addr), value);
     } else if addr < 0x4018 {
       // TODO APU and I/O registers
       ()

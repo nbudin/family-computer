@@ -1,14 +1,18 @@
 use std::mem::size_of;
 
 use wgpu::util::DeviceExt;
-use winit::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 
-use super::vertex::Vertex;
+use super::{
+  node::{BoxError, Node, RenderablePrepareData},
+  vertex2d::Vertex2D,
+};
 
 pub const PIXEL_BUFFER_WIDTH: u32 = 256;
 pub const PIXEL_BUFFER_HEIGHT: u32 = 240;
 pub const BYTES_PER_PIXEL: u32 = 4;
 pub const PIXEL_BUFFER_SIZE: usize = 256 * 240 * 4;
+pub const PIXEL_BUFFER_ASPECT: f32 = 256.0 / 240.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -25,6 +29,8 @@ pub struct CRTScreen {
   pub bind_group_layout: wgpu::BindGroupLayout,
   pub bind_group: wgpu::BindGroup,
   pub next_frame: [u8; PIXEL_BUFFER_SIZE],
+  pub position: PhysicalPosition<u32>,
+  pub size: PhysicalSize<u32>,
   vertex_buffer: wgpu::Buffer,
   index_buffer: wgpu::Buffer,
   uniform_buffer: wgpu::Buffer,
@@ -32,7 +38,12 @@ pub struct CRTScreen {
 }
 
 impl CRTScreen {
-  pub fn new(device: &wgpu::Device, target_texture_format: wgpu::TextureFormat) -> Self {
+  pub fn new(
+    device: &wgpu::Device,
+    target_texture_format: wgpu::TextureFormat,
+    position: PhysicalPosition<u32>,
+    size: PhysicalSize<u32>,
+  ) -> Self {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
       size: wgpu::Extent3d {
         width: PIXEL_BUFFER_WIDTH.try_into().unwrap(),
@@ -127,10 +138,11 @@ impl CRTScreen {
       source: wgpu::ShaderSource::Wgsl(include_str!("crt_screen.wgsl").into()),
     });
 
-    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
       label: Some("Vertex Buffer"),
-      contents: bytemuck::cast_slice(VERTICES),
-      usage: wgpu::BufferUsages::VERTEX,
+      usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+      size: u64::try_from(size_of::<Vertex2D>()).unwrap() * 4,
+      mapped_at_creation: false,
     });
     let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
       label: Some("Index Buffer"),
@@ -151,7 +163,7 @@ impl CRTScreen {
       vertex: wgpu::VertexState {
         module: &shader,
         entry_point: "vs_main", // 1.
-        buffers: &[Vertex::desc()],
+        buffers: &[Vertex2D::desc()],
       },
       fragment: Some(wgpu::FragmentState {
         module: &shader,
@@ -195,10 +207,17 @@ impl CRTScreen {
       uniform_buffer,
       num_indices,
       next_frame: [0; PIXEL_BUFFER_SIZE],
+      position,
+      size,
     }
   }
+}
 
-  pub fn prepare(&self, queue: &wgpu::Queue, window_size: PhysicalSize<u32>) {
+impl Node for CRTScreen {
+  fn prepare(&mut self, data: &RenderablePrepareData) -> Result<(), BoxError> {
+    let queue = data.queue;
+    let window_size = data.window.inner_size();
+
     queue.write_buffer(
       &self.uniform_buffer,
       0,
@@ -206,6 +225,36 @@ impl CRTScreen {
         width: window_size.width,
         height: window_size.height,
       }),
+    );
+
+    queue.write_buffer(
+      &self.vertex_buffer,
+      0,
+      bytemuck::cast_slice(&[
+        // Top left
+        Vertex2D {
+          position: [self.position.x, self.position.y],
+          tex_coords: [0.0, 0.0],
+        },
+        // Top right
+        Vertex2D {
+          position: [(self.position.x + self.size.width), self.position.y],
+          tex_coords: [1.0, 0.0],
+        },
+        // Bottom left
+        Vertex2D {
+          position: [self.position.x, (self.position.y + self.size.height)],
+          tex_coords: [0.0, 1.0],
+        },
+        // Bottom right
+        Vertex2D {
+          position: [
+            (self.position.x + self.size.width),
+            (self.position.y + self.size.height),
+          ],
+          tex_coords: [1.0, 1.0],
+        },
+      ]),
     );
 
     queue.write_texture(
@@ -223,38 +272,19 @@ impl CRTScreen {
       },
       self.texture.size(),
     );
+
+    Ok(())
   }
 
-  pub fn render<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
+  fn render<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) -> Result<(), BoxError> {
     pass.set_pipeline(&self.render_pipeline);
     pass.set_bind_group(0, &self.bind_group, &[]);
     pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
     pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
     pass.draw_indexed(0..self.num_indices, 0, 0..1);
+
+    Ok(())
   }
 }
-
-const VERTICES: &[Vertex] = &[
-  // Top left
-  Vertex {
-    position: [-1.0, 1.0, 0.0],
-    tex_coords: [0.0, 0.0],
-  },
-  // Top right
-  Vertex {
-    position: [1.0, 1.0, 0.0],
-    tex_coords: [1.0, 0.0],
-  },
-  // Bottom left
-  Vertex {
-    position: [-1.0, -1.0, 0.0],
-    tex_coords: [0.0, 1.0],
-  },
-  // Bottom right
-  Vertex {
-    position: [1.0, -1.0, 0.0],
-    tex_coords: [1.0, 1.0],
-  },
-];
 
 const INDICES: &[u16] = &[0, 2, 1, 1, 2, 3];
