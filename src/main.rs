@@ -13,6 +13,7 @@ use std::{path::Path, time::Duration};
 use ines_rom::INESRom;
 use machine::Machine;
 use winit::{
+  dpi::PhysicalSize,
   error::EventLoopError,
   event::{Event, WindowEvent},
   event_loop::{ControlFlow, EventLoop},
@@ -28,7 +29,9 @@ const FRAME_DURATION_SECS: f32 = 1.0 / 60.0;
 
 pub async fn run() -> Result<(), EventLoopError> {
   let event_loop = EventLoop::new()?;
-  let builder = WindowBuilder::new().with_title("Family Computer");
+  let builder = WindowBuilder::new()
+    .with_title("Family Computer")
+    .with_inner_size(PhysicalSize::new(1000, 600));
   #[cfg(wasm_platform)]
   let builder = {
     use winit::platform::web::WindowBuilderExtWebSys;
@@ -41,7 +44,7 @@ pub async fn run() -> Result<(), EventLoopError> {
 
   let mut gfx_state = GfxState::new(window, |data| Layout::new(data)).await;
 
-  let rom = INESRom::from_file(&Path::new("smb.nes")).unwrap();
+  let rom = INESRom::from_file(&Path::new("dk.nes")).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
   let mut machine = Machine::from_rom(rom);
   machine.reset();

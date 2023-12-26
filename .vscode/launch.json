@@ -16,7 +16,10 @@
         }
       },
       "args": [],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "CPU_VERBOSE": "1"
+      }
     },
     {
       "type": "lldb",

@@ -69,7 +69,7 @@ impl PPURegister {
       4 => Self::OAMDATA,
       5 => Self::PPUSCROLL,
       6 => Self::PPUADDR,
-      7 => Self::OAMDMA,
+      7 => Self::PPUDATA,
       _ => panic!("This should never happen"),
     }
   }
@@ -101,6 +101,8 @@ pub struct PPU {
   address_latch: PPUAddressLatch,
   address: u16,
   pub palette_ram: [u8; 32],
+  name_tables: [[u8; 1024]; 2],
+  pattern_tables: [[u8; 4096]; 2],
 }
 
 impl PPU {
@@ -116,23 +118,106 @@ impl PPU {
       palette_ram: [0; 32],
       address: 0,
       address_latch: PPUAddressLatch::High,
+      name_tables: [[0; 1024], [0; 1024]],
+      pattern_tables: [[0; 4096], [0; 4096]],
     }
   }
 
   pub fn get_ppu_mem(&self, machine: &Machine, addr: u16) -> u8 {
-    if addr < 0x3f00 {
-      machine.cartridge.read().unwrap().get_ppu_mem(addr)
-    } else {
-      self.palette_ram[usize::from(addr) % 32]
+    let cartridge = machine.cartridge.read().unwrap();
+
+    match cartridge.get_ppu_mem(addr) {
+      Some(value) => value,
+      None => {
+        if addr < 0x1fff {
+          self.pattern_tables[(addr as usize & 0x1000) >> 12][addr as usize & 0x0fff]
+        } else if addr < 0x3f00 {
+          let addr = addr & 0x0fff;
+
+          match cartridge.get_mirroring() {
+            crate::cartridge::CartridgeMirroring::HORIZONTAL => {
+              if addr < 0x0400 {
+                self.name_tables[0][addr as usize & 0x03ff]
+              } else if addr < 0x0800 {
+                self.name_tables[0][addr as usize & 0x03ff]
+              } else if addr < 0x0c00 {
+                self.name_tables[1][addr as usize & 0x03ff]
+              } else {
+                self.name_tables[1][addr as usize & 0x03ff]
+              }
+            }
+            crate::cartridge::CartridgeMirroring::VERTICAL => {
+              if addr < 0x0400 {
+                self.name_tables[0][addr as usize & 0x03ff]
+              } else if addr < 0x0800 {
+                self.name_tables[1][addr as usize & 0x03ff]
+              } else if addr < 0x0c00 {
+                self.name_tables[0][addr as usize & 0x03ff]
+              } else {
+                self.name_tables[1][addr as usize & 0x03ff]
+              }
+            }
+          }
+        } else {
+          let addr = addr & 0x001f;
+          let addr = match addr {
+            0x0010 => 0x0000,
+            0x0014 => 0x0004,
+            0x0018 => 0x0008,
+            0x001c => 0x000c,
+            _ => addr,
+          };
+          self.palette_ram[addr as usize] & (if self.mask.grayscale() { 0x30 } else { 0x3f })
+        }
+      }
     }
   }
 
   pub fn set_ppu_mem(&mut self, machine: &Machine, addr: u16, value: u8) {
-    if addr < 0x3f00 {
-      let mut cartridge = (*machine.cartridge).write().unwrap();
-      cartridge.set_ppu_mem(addr, value)
+    let mut cartridge = (*machine.cartridge).write().unwrap();
+
+    if cartridge.set_ppu_mem(addr, value) {
     } else {
-      self.palette_ram[usize::from(addr) % 32] = value;
+      if addr < 0x2000 {
+        self.pattern_tables[(addr as usize & 0x1000) >> 12][addr as usize & 0x0fff] = value;
+      } else if addr < 0x3f00 {
+        let addr = addr & 0x0fff;
+
+        match cartridge.get_mirroring() {
+          crate::cartridge::CartridgeMirroring::HORIZONTAL => {
+            if addr < 0x0400 {
+              self.name_tables[0][addr as usize & 0x03ff] = value;
+            } else if addr < 0x0800 {
+              self.name_tables[0][addr as usize & 0x03ff] = value;
+            } else if addr < 0x0c00 {
+              self.name_tables[1][addr as usize & 0x03ff] = value;
+            } else {
+              self.name_tables[1][addr as usize & 0x03ff] = value;
+            }
+          }
+          crate::cartridge::CartridgeMirroring::VERTICAL => {
+            if addr < 0x0400 {
+              self.name_tables[0][addr as usize & 0x03ff] = value;
+            } else if addr < 0x0800 {
+              self.name_tables[1][addr as usize & 0x03ff] = value;
+            } else if addr < 0x0c00 {
+              self.name_tables[0][addr as usize & 0x03ff] = value;
+            } else {
+              self.name_tables[1][addr as usize & 0x03ff] = value;
+            }
+          }
+        }
+      } else {
+        let addr = addr & 0x001f;
+        let addr = match addr {
+          0x0010 => 0x0000,
+          0x0014 => 0x0004,
+          0x0018 => 0x0008,
+          0x001c => 0x000c,
+          _ => addr,
+        };
+        self.palette_ram[addr as usize] = value;
+      }
     }
   }
 
@@ -154,7 +239,7 @@ impl PPU {
           result = self.data_bus;
         }
 
-        self.address += 1;
+        self.address += if self.control.increment_mode() { 32 } else { 1 };
       }
       _ => {}
     }
@@ -184,14 +269,14 @@ impl PPU {
       },
       PPURegister::PPUDATA => {
         self.set_ppu_mem(machine, self.address, value);
-        self.address += 1;
+        self.address += if self.control.increment_mode() { 32 } else { 1 };
       }
       _ => {}
     }
   }
 
   pub fn get_tile_pixel(&self, machine: &Machine, tile_index: u16, x: u16, y: u16) -> u8 {
-    let tile_offset = tile_index * 16;
+    let tile_offset = tile_index as u16 * 16;
     let plane1_row = self.get_ppu_mem(machine, tile_offset + y);
     let plane2_row = self.get_ppu_mem(machine, tile_offset + y + 8);
 
@@ -216,16 +301,19 @@ impl PPU {
       let pixel = pixbuf
         .get_mut((offset as usize)..((offset + BYTES_PER_PIXEL) as usize))
         .unwrap();
+      let name_table_offset = ((self.y as usize / 8) * 32) + (self.x as usize / 8);
+
+      let tile_index = self.name_tables[0][name_table_offset] as u16 + 256;
       let color_index = self.get_tile_pixel(
         machine,
-        0,
-        (self.x / (PIXEL_BUFFER_WIDTH / 8)) as u16,
-        (self.y / (PIXEL_BUFFER_HEIGHT / 8)) as u16,
+        tile_index,
+        (self.x % 8) as u16,
+        (self.y % 8) as u16,
       );
-      let palette_color = PALETTE[color_index as usize];
-      // let palette_color = PALETTE[self.get_sprite_palette_color(0, color_index.into()) as usize];
+      // let palette_color = PALETTE[color_index as usize];
+      let color = PALETTE[self.get_sprite_palette_color(0, color_index.into()) as usize % 64];
 
-      pixel.copy_from_slice(&[palette_color[0], palette_color[1], palette_color[2], 255]);
+      pixel.copy_from_slice(&[color[0], color[1], color[2], 255]);
     }
 
     // entering vblank
