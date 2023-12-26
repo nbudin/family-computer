@@ -1,6 +1,8 @@
 use std::env;
 
-use crate::{instructions::Instruction, machine::Machine, operand::Operand};
+use crate::machine::Machine;
+
+use super::{Instruction, LoadInstruction, Operand};
 
 #[derive(Debug)]
 pub struct CPU {
@@ -23,6 +25,16 @@ pub struct CPU {
   pub irq_set: bool,
 
   pub verbose: bool,
+}
+
+impl LoadInstruction for CPU {
+  fn get_pc(&self) -> u16 {
+    self.pc
+  }
+
+  fn inc_pc(&mut self) {
+    self.pc += 1;
+  }
 }
 
 impl CPU {

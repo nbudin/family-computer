@@ -40,7 +40,7 @@ impl Machine {
         ppu_state.tick(&self, pixbuf);
         ppu_state.tick(&self, pixbuf);
 
-        if ppu_state.x == 0 && ppu_state.y == 0 {
+        if ppu_state.cycle == 0 && ppu_state.scanline == 0 {
           break;
         }
       }

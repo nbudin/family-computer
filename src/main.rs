@@ -2,13 +2,11 @@ mod cartridge;
 mod cpu;
 mod gfx;
 mod ines_rom;
-mod instructions;
 mod machine;
-mod operand;
 mod palette;
 mod ppu;
 
-use std::{path::Path, time::Duration};
+use std::{env, path::Path, time::Duration};
 
 use ines_rom::INESRom;
 use machine::Machine;
@@ -44,7 +42,15 @@ pub async fn run() -> Result<(), EventLoopError> {
 
   let mut gfx_state = GfxState::new(window, |data| Layout::new(data)).await;
 
-  let rom = INESRom::from_file(&Path::new("dk.nes")).unwrap();
+  let args = env::args().into_iter().collect::<Vec<_>>();
+  let Some(rom_path) = args.get(1).map(Path::new) else {
+    println!("Please specify a ROM path");
+    return Ok(());
+  };
+
+  println!("Loading {}", rom_path.display());
+
+  let rom = INESRom::from_file(&rom_path).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
   let mut machine = Machine::from_rom(rom);
   machine.reset();

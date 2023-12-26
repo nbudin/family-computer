@@ -2,7 +2,9 @@ use std::fmt::Display;
 
 use strum::IntoStaticStr;
 
-use crate::{cpu::CPU, machine::Machine, operand::Operand};
+use crate::machine::Machine;
+
+use super::Operand;
 
 #[derive(Debug, IntoStaticStr)]
 pub enum Instruction {
@@ -315,10 +317,13 @@ impl Instruction {
   }
 }
 
-impl CPU {
+pub trait LoadInstruction {
+  fn get_pc(&self) -> u16;
+  fn inc_pc(&mut self);
+
   fn load_byte(&mut self, state: &Machine) -> u8 {
-    let byte = state.get_cpu_mem(self.pc);
-    self.pc += 1;
+    let byte = state.get_cpu_mem(self.get_pc());
+    self.inc_pc();
     byte
   }
 
@@ -334,7 +339,7 @@ impl CPU {
     byte as i8
   }
 
-  pub fn load_instruction(&mut self, state: &Machine) -> Instruction {
+  fn load_instruction(&mut self, state: &Machine) -> Instruction {
     let opcode = self.load_byte(state);
 
     match opcode {
@@ -347,6 +352,7 @@ impl CPU {
       0x0a => Instruction::ASL(Operand::Accumulator),
       0x0d => Instruction::ORA(Operand::Absolute(self.load_addr(state))),
       0x0e => Instruction::ASL(Operand::Absolute(self.load_addr(state))),
+
       0x10 => Instruction::BPL(Operand::Relative(self.load_offset(state))),
       0x11 => Instruction::ORA(Operand::IndirectY(self.load_byte(state))),
       0x15 => Instruction::ORA(Operand::ZeroPageX(self.load_byte(state))),
@@ -355,6 +361,7 @@ impl CPU {
       0x19 => Instruction::ORA(Operand::AbsoluteY(self.load_addr(state))),
       0x1d => Instruction::ORA(Operand::AbsoluteX(self.load_addr(state))),
       0x1e => Instruction::ASL(Operand::AbsoluteX(self.load_addr(state))),
+
       0x20 => Instruction::JSR(Operand::Absolute(self.load_addr(state))),
       0x21 => Instruction::AND(Operand::IndirectX(self.load_byte(state))),
       0x24 => Instruction::BIT(Operand::ZeroPage(self.load_byte(state))),
@@ -366,6 +373,7 @@ impl CPU {
       0x2c => Instruction::BIT(Operand::Absolute(self.load_addr(state))),
       0x2d => Instruction::AND(Operand::Absolute(self.load_addr(state))),
       0x2e => Instruction::ROL(Operand::Absolute(self.load_addr(state))),
+
       0x30 => Instruction::BMI(Operand::Relative(self.load_offset(state))),
       0x31 => Instruction::AND(Operand::IndirectY(self.load_byte(state))),
       0x35 => Instruction::AND(Operand::ZeroPageX(self.load_byte(state))),
@@ -374,6 +382,7 @@ impl CPU {
       0x39 => Instruction::AND(Operand::AbsoluteY(self.load_addr(state))),
       0x3d => Instruction::AND(Operand::AbsoluteX(self.load_addr(state))),
       0x3e => Instruction::ROL(Operand::AbsoluteX(self.load_addr(state))),
+
       0x40 => Instruction::RTI,
       0x41 => Instruction::EOR(Operand::IndirectX(self.load_byte(state))),
       0x45 => Instruction::EOR(Operand::ZeroPage(self.load_byte(state))),
@@ -384,6 +393,7 @@ impl CPU {
       0x4c => Instruction::JMP(Operand::Absolute(self.load_addr(state))),
       0x4d => Instruction::EOR(Operand::Absolute(self.load_addr(state))),
       0x4e => Instruction::LSR(Operand::Absolute(self.load_addr(state))),
+
       0x50 => Instruction::BVC(Operand::Relative(self.load_offset(state))),
       0x51 => Instruction::EOR(Operand::IndirectY(self.load_byte(state))),
       0x55 => Instruction::EOR(Operand::ZeroPageX(self.load_byte(state))),
@@ -392,6 +402,7 @@ impl CPU {
       0x59 => Instruction::EOR(Operand::AbsoluteY(self.load_addr(state))),
       0x5d => Instruction::EOR(Operand::AbsoluteX(self.load_addr(state))),
       0x5e => Instruction::LSR(Operand::AbsoluteX(self.load_addr(state))),
+
       0x60 => Instruction::RTS,
       0x61 => Instruction::ADC(Operand::IndirectX(self.load_byte(state))),
       0x65 => Instruction::ADC(Operand::ZeroPage(self.load_byte(state))),
@@ -402,6 +413,7 @@ impl CPU {
       0x6c => Instruction::JMP(Operand::Indirect(self.load_addr(state))),
       0x6d => Instruction::ADC(Operand::Absolute(self.load_addr(state))),
       0x6e => Instruction::ROR(Operand::Absolute(self.load_addr(state))),
+
       0x70 => Instruction::BVS(Operand::Relative(self.load_offset(state))),
       0x71 => Instruction::ADC(Operand::IndirectY(self.load_byte(state))),
       0x75 => Instruction::ADC(Operand::ZeroPageX(self.load_byte(state))),
@@ -410,7 +422,7 @@ impl CPU {
       0x79 => Instruction::ADC(Operand::AbsoluteY(self.load_addr(state))),
       0x7d => Instruction::ADC(Operand::AbsoluteX(self.load_addr(state))),
       0x7e => Instruction::ROR(Operand::AbsoluteX(self.load_addr(state))),
-      0x9a => Instruction::TXS,
+
       0x81 => Instruction::STA(Operand::IndirectX(self.load_byte(state))),
       0x84 => Instruction::STY(Operand::ZeroPage(self.load_byte(state))),
       0x85 => Instruction::STA(Operand::ZeroPage(self.load_byte(state))),
@@ -420,6 +432,7 @@ impl CPU {
       0x8c => Instruction::STY(Operand::Absolute(self.load_addr(state))),
       0x8d => Instruction::STA(Operand::Absolute(self.load_addr(state))),
       0x8e => Instruction::STX(Operand::Absolute(self.load_addr(state))),
+
       0x90 => Instruction::BCC(Operand::Relative(self.load_offset(state))),
       0x91 => Instruction::STA(Operand::IndirectY(self.load_byte(state))),
       0x94 => Instruction::STY(Operand::ZeroPageX(self.load_byte(state))),
@@ -427,7 +440,9 @@ impl CPU {
       0x96 => Instruction::STX(Operand::ZeroPageY(self.load_byte(state))),
       0x98 => Instruction::TYA,
       0x99 => Instruction::STA(Operand::AbsoluteY(self.load_addr(state))),
+      0x9a => Instruction::TXS,
       0x9d => Instruction::STA(Operand::AbsoluteX(self.load_addr(state))),
+
       0xa0 => Instruction::LDY(Operand::Immediate(self.load_byte(state))),
       0xa1 => Instruction::LDX(Operand::IndirectX(self.load_byte(state))),
       0xa2 => Instruction::LDX(Operand::Immediate(self.load_byte(state))),
@@ -440,6 +455,7 @@ impl CPU {
       0xac => Instruction::LDY(Operand::Absolute(self.load_addr(state))),
       0xad => Instruction::LDA(Operand::Absolute(self.load_addr(state))),
       0xae => Instruction::LDX(Operand::Absolute(self.load_addr(state))),
+
       0xb0 => Instruction::BCS(Operand::Relative(self.load_offset(state))),
       0xb1 => Instruction::LDA(Operand::IndirectY(self.load_byte(state))),
       0xb4 => Instruction::LDY(Operand::ZeroPageX(self.load_byte(state))),
@@ -451,6 +467,7 @@ impl CPU {
       0xbd => Instruction::LDA(Operand::AbsoluteX(self.load_addr(state))),
       0xbe => Instruction::LDX(Operand::AbsoluteY(self.load_addr(state))),
       0xb8 => Instruction::CLV,
+
       0xc0 => Instruction::CPY(Operand::Immediate(self.load_byte(state))),
       0xc1 => Instruction::CMP(Operand::IndirectX(self.load_byte(state))),
       0xc4 => Instruction::CPY(Operand::ZeroPage(self.load_byte(state))),
@@ -462,6 +479,7 @@ impl CPU {
       0xcc => Instruction::CPY(Operand::Absolute(self.load_addr(state))),
       0xcd => Instruction::CMP(Operand::Absolute(self.load_addr(state))),
       0xce => Instruction::DEC(Operand::Absolute(self.load_addr(state))),
+
       0xd0 => Instruction::BNE(Operand::Relative(self.load_offset(state))),
       0xd1 => Instruction::CMP(Operand::IndirectY(self.load_byte(state))),
       0xd5 => Instruction::CMP(Operand::ZeroPageX(self.load_byte(state))),
@@ -470,6 +488,7 @@ impl CPU {
       0xd9 => Instruction::CMP(Operand::AbsoluteY(self.load_addr(state))),
       0xdd => Instruction::CMP(Operand::AbsoluteX(self.load_addr(state))),
       0xde => Instruction::DEC(Operand::AbsoluteX(self.load_addr(state))),
+
       0xe0 => Instruction::CPX(Operand::Immediate(self.load_byte(state))),
       0xe1 => Instruction::SBC(Operand::IndirectX(self.load_byte(state))),
       0xe4 => Instruction::CPX(Operand::ZeroPage(self.load_byte(state))),
@@ -481,6 +500,7 @@ impl CPU {
       0xec => Instruction::CPX(Operand::Absolute(self.load_addr(state))),
       0xed => Instruction::SBC(Operand::Absolute(self.load_addr(state))),
       0xee => Instruction::INC(Operand::Absolute(self.load_addr(state))),
+
       0xf0 => Instruction::BEQ(Operand::Relative(self.load_offset(state))),
       0xf1 => Instruction::SBC(Operand::IndirectY(self.load_byte(state))),
       0xf5 => Instruction::SBC(Operand::ZeroPageX(self.load_byte(state))),
@@ -563,4 +583,9 @@ impl Display for Instruction {
       | Instruction::TYA => f.write_str(instruction_name.to_lowercase().as_str()),
     }
   }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
 }
