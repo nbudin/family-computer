@@ -22,8 +22,8 @@ pub enum PPURegister {
 
 #[derive(Debug)]
 enum PPUAddressLatch {
-  Low,
   High,
+  Low,
 }
 
 #[bitfield(u8)]
@@ -57,6 +57,19 @@ pub struct PPUControlRegister {
   sprite_size: bool,
   slave_mode: bool,
   enable_nmi: bool,
+}
+
+#[bitfield(u16)]
+pub struct PPULoopyRegister {
+  #[bits(5)]
+  coarse_x: u8,
+  #[bits(5)]
+  coarse_y: u8,
+  nametable_x: bool,
+  nametable_y: bool,
+  #[bits(3)]
+  fine_y: u8,
+  _unused: bool,
 }
 
 impl PPURegister {
@@ -96,13 +109,22 @@ pub struct PPU {
   status: PPUStatusRegister,
   mask: PPUMaskRegister,
   control: PPUControlRegister,
-  nametable_select: u8,
+  vram_addr: PPULoopyRegister,
+  tram_addr: PPULoopyRegister,
+  fine_x: u8,
   data_bus: u8,
   address_latch: PPUAddressLatch,
-  address: u16,
   pub palette_ram: [u8; 32],
   name_tables: [[u8; 1024]; 2],
   pattern_tables: [[u8; 4096]; 2],
+  bg_next_tile_id: u8,
+  bg_next_tile_attrib: u8,
+  bg_next_tile_low: u8,
+  bg_next_tile_high: u8,
+  bg_shifter_pattern_low: u16,
+  bg_shifter_pattern_high: u16,
+  bg_shifter_attrib_low: u16,
+  bg_shifter_attrib_high: u16,
 }
 
 impl PPU {
@@ -113,13 +135,22 @@ impl PPU {
       mask: PPUMaskRegister::new(),
       control: PPUControlRegister::new(),
       status: PPUStatusRegister::new(),
-      nametable_select: 0,
+      vram_addr: PPULoopyRegister::new(),
+      tram_addr: PPULoopyRegister::new(),
+      fine_x: 0,
       data_bus: 0,
       palette_ram: [0; 32],
-      address: 0,
       address_latch: PPUAddressLatch::High,
       name_tables: [[0; 1024], [0; 1024]],
       pattern_tables: [[0; 4096], [0; 4096]],
+      bg_next_tile_attrib: 0,
+      bg_next_tile_id: 0,
+      bg_next_tile_low: 0,
+      bg_next_tile_high: 0,
+      bg_shifter_attrib_high: 0,
+      bg_shifter_attrib_low: 0,
+      bg_shifter_pattern_high: 0,
+      bg_shifter_pattern_low: 0,
     }
   }
 
@@ -232,14 +263,14 @@ impl PPU {
       }
       PPURegister::PPUDATA => {
         result = self.data_bus;
-        self.data_bus = self.get_ppu_mem(machine, self.address);
+        self.data_bus = self.get_ppu_mem(machine, self.vram_addr.into());
 
-        if self.address > 0x3f00 {
+        if self.vram_addr.0 > 0x3f00 {
           // palette memory is read immediately
           result = self.data_bus;
         }
 
-        self.address += if self.control.increment_mode() { 32 } else { 1 };
+        self.vram_addr.0 += if self.control.increment_mode() { 32 } else { 1 };
       }
       _ => {}
     }
@@ -251,39 +282,43 @@ impl PPU {
     match register {
       PPURegister::PPUCTRL => {
         self.control = value.into();
+        self.tram_addr.set_nametable_x(self.control.nametable_x());
+        self.tram_addr.set_nametable_y(self.control.nametable_y());
         self.data_bus = value;
       }
       PPURegister::PPUMASK => {
         self.mask = value.into();
         self.data_bus = value;
       }
-      PPURegister::PPUADDR => match self.address_latch {
+      PPURegister::PPUSCROLL => match self.address_latch {
+        PPUAddressLatch::High => {
+          self.fine_x = value & 0x07;
+          self.tram_addr.set_coarse_x(value >> 3);
+          self.address_latch = PPUAddressLatch::Low;
+        }
         PPUAddressLatch::Low => {
-          self.address = (self.address & 0xff00) | u16::from(value);
+          self.tram_addr.set_fine_y(value & 0x07);
+          self.tram_addr.set_coarse_y(value >> 3);
           self.address_latch = PPUAddressLatch::High;
         }
+      },
+      PPURegister::PPUADDR => match self.address_latch {
         PPUAddressLatch::High => {
-          self.address = (self.address & 0x00ff) | (u16::from(value) << 8);
+          self.tram_addr.0 = (self.tram_addr.0 & 0x00ff) | (u16::from(value) << 8);
           self.address_latch = PPUAddressLatch::Low;
+        }
+        PPUAddressLatch::Low => {
+          self.tram_addr.0 = (self.tram_addr.0 & 0xff00) | u16::from(value);
+          self.vram_addr = self.tram_addr;
+          self.address_latch = PPUAddressLatch::High;
         }
       },
       PPURegister::PPUDATA => {
-        self.set_ppu_mem(machine, self.address, value);
-        self.address += if self.control.increment_mode() { 32 } else { 1 };
+        self.set_ppu_mem(machine, self.vram_addr.0, value);
+        self.vram_addr.0 += if self.control.increment_mode() { 32 } else { 1 };
       }
       _ => {}
     }
-  }
-
-  pub fn get_tile_pixel(&self, machine: &Machine, tile_index: u16, x: u16, y: u16) -> u8 {
-    let tile_offset = tile_index as u16 * 16;
-    let plane1_row = self.get_ppu_mem(machine, tile_offset + y);
-    let plane2_row = self.get_ppu_mem(machine, tile_offset + y + 8);
-
-    let plane1_bit = (plane1_row >> (7 - x)) & 1;
-    let plane2_bit = (plane2_row >> (7 - x)) & 1;
-
-    (plane2_bit << 1) + plane1_bit
   }
 
   pub fn get_bg_palette_color(&self, palette_index: usize, color_index: usize) -> u8 {
@@ -294,26 +329,206 @@ impl PPU {
     self.palette_ram[17 + (palette_index * 4) + color_index]
   }
 
+  fn increment_scroll_x(&mut self) {
+    if self.mask.render_background() || self.mask.render_sprites() {
+      if self.vram_addr.coarse_x() == 31 {
+        self.vram_addr.set_coarse_x(0);
+        self
+          .vram_addr
+          .set_nametable_x(!self.vram_addr.nametable_x());
+      } else {
+        self.vram_addr.set_coarse_x(self.vram_addr.coarse_x() + 1);
+      }
+    }
+  }
+
+  fn increment_scroll_y(&mut self) {
+    if self.mask.render_background() || self.mask.render_sprites() {
+      if self.vram_addr.fine_y() < 7 {
+        self.vram_addr.set_fine_y(self.vram_addr.fine_y() + 1);
+      } else {
+        self.vram_addr.set_fine_y(0);
+
+        if self.vram_addr.coarse_y() == 29 {
+          self.vram_addr.set_coarse_y(0);
+          self
+            .vram_addr
+            .set_nametable_y(!self.vram_addr.nametable_y());
+        } else if self.vram_addr.coarse_y() == 31 {
+          self.vram_addr.set_coarse_y(0);
+        } else {
+          self.vram_addr.set_coarse_y(self.vram_addr.coarse_y() + 1);
+        }
+      }
+    }
+  }
+
+  fn transfer_address_x(&mut self) {
+    if self.mask.render_background() || self.mask.render_sprites() {
+      self.vram_addr.set_nametable_x(self.tram_addr.nametable_x());
+      self.vram_addr.set_coarse_x(self.tram_addr.coarse_x());
+    }
+  }
+
+  fn transfer_address_y(&mut self) {
+    if self.mask.render_background() || self.mask.render_sprites() {
+      self.vram_addr.set_nametable_x(self.tram_addr.nametable_x());
+      self.vram_addr.set_coarse_x(self.tram_addr.coarse_x());
+    }
+  }
+
+  fn load_background_shifters(&mut self) {
+    self.bg_shifter_pattern_low =
+      (self.bg_shifter_pattern_low & 0xff00) | self.bg_next_tile_low as u16;
+    self.bg_shifter_pattern_high =
+      (self.bg_shifter_pattern_high & 0xff00) | self.bg_next_tile_high as u16;
+    self.bg_shifter_attrib_low = (self.bg_shifter_attrib_low & 0xff00)
+      | (if self.bg_next_tile_attrib & 0b01 > 0 {
+        0xff
+      } else {
+        0
+      });
+    self.bg_shifter_attrib_high = (self.bg_shifter_attrib_high & 0xff00)
+      | (if self.bg_next_tile_attrib & 0b10 > 0 {
+        0xff
+      } else {
+        0
+      });
+  }
+
+  fn update_shifters(&mut self) {
+    if self.mask.render_background() {
+      self.bg_shifter_pattern_high <<= 1;
+      self.bg_shifter_pattern_low <<= 1;
+      self.bg_shifter_attrib_high <<= 1;
+      self.bg_shifter_attrib_low <<= 1;
+    }
+  }
+
   pub fn tick(&mut self, machine: &Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
     if self.x < PIXEL_BUFFER_WIDTH && self.y < PIXEL_BUFFER_HEIGHT {
       // Pixel is in the visible range of the CRT
-      let offset = (self.x + (self.y * PIXEL_BUFFER_WIDTH)) * BYTES_PER_PIXEL;
-      let pixel = pixbuf
-        .get_mut((offset as usize)..((offset + BYTES_PER_PIXEL) as usize))
-        .unwrap();
-      let name_table_offset = ((self.y as usize / 8) * 32) + (self.x as usize / 8);
 
-      let tile_index = self.name_tables[0][name_table_offset] as u16 + 256;
-      let color_index = self.get_tile_pixel(
-        machine,
-        tile_index,
-        (self.x % 8) as u16,
-        (self.y % 8) as u16,
-      );
-      // let palette_color = PALETTE[color_index as usize];
-      let color = PALETTE[self.get_sprite_palette_color(0, color_index.into()) as usize % 64];
+      if self.mask.render_background() {
+        let bit_mux = 0x8000 >> self.fine_x;
 
-      pixel.copy_from_slice(&[color[0], color[1], color[2], 255]);
+        let plane0_pixel: usize = if (self.bg_shifter_pattern_low & bit_mux) > 0 {
+          1
+        } else {
+          0
+        };
+        let plane1_pixel: usize = if (self.bg_shifter_pattern_high & bit_mux) > 0 {
+          0b10
+        } else {
+          0
+        };
+        let bg_pixel = plane1_pixel | plane0_pixel;
+
+        let plane0_palette: usize = if (self.bg_shifter_attrib_low & bit_mux) > 0 {
+          1
+        } else {
+          0
+        };
+        let plane1_palette: usize = if (self.bg_shifter_attrib_high & bit_mux) > 0 {
+          0b10
+        } else {
+          0
+        };
+        let bg_palette = plane1_palette | plane0_palette;
+
+        let color = PALETTE[self.get_bg_palette_color(bg_palette, bg_pixel) as usize % 64];
+
+        // let name_table_offset = ((self.y as usize / 8) * 32) + (self.x as usize / 8);
+        // let tile_index = self.name_tables[0][name_table_offset] as u16 + 256;
+        // let color_index = self.get_tile_pixel(
+        //   machine,
+        //   tile_index,
+        //   (self.x % 8) as u16,
+        //   (self.y % 8) as u16,
+        // );
+        // // let palette_color = PALETTE[color_index as usize];
+        // let color = PALETTE[self.get_sprite_palette_color(0, color_index.into()) as usize % 64];
+
+        let offset = (self.x + (self.y * PIXEL_BUFFER_WIDTH)) * BYTES_PER_PIXEL;
+        let pixel = pixbuf
+          .get_mut((offset as usize)..((offset + BYTES_PER_PIXEL) as usize))
+          .unwrap();
+        pixel.copy_from_slice(&[color[0], color[1], color[2], 255]);
+      }
+    }
+
+    if self.x == 1 && self.y == 261 {
+      self.status.set_vertical_blank(false);
+      self.status.set_sprite_zero_hit(false);
+      self.status.set_sprite_overflow(false);
+    }
+
+    if (self.x >= 1 && self.x < 257) || (self.x >= 328 && self.x < 337) {
+      self.update_shifters();
+
+      match self.x % 8 {
+        0 => {
+          self.load_background_shifters();
+          self.bg_next_tile_id = self.get_ppu_mem(machine, 0x2000 | self.vram_addr.0 & 0x0fff);
+        }
+        2 => {
+          self.bg_next_tile_attrib = self.get_ppu_mem(
+            machine,
+            0x23c0
+              | (if self.vram_addr.nametable_y() {
+                1 << 11
+              } else {
+                0
+              })
+              | (if self.vram_addr.nametable_x() {
+                1 << 10
+              } else {
+                0
+              })
+              | ((self.vram_addr.coarse_y() as u16 >> 2) << 3)
+              | (self.vram_addr.coarse_x() as u16 >> 2),
+          )
+        }
+        4 => {
+          self.bg_next_tile_low = self.get_ppu_mem(
+            machine,
+            (if self.control.pattern_background() {
+              1 << 12
+            } else {
+              0
+            }) + ((self.bg_next_tile_id as u16) << 4)
+              + (self.vram_addr.fine_y() as u16),
+          )
+        }
+        6 => {
+          self.bg_next_tile_high = self.get_ppu_mem(
+            machine,
+            (if self.control.pattern_background() {
+              1 << 12
+            } else {
+              0
+            }) + ((self.bg_next_tile_id as u16) << 4)
+              + (self.vram_addr.fine_y() as u16)
+              + 8,
+          )
+        }
+        7 => {
+          self.increment_scroll_x();
+        }
+        _ => {}
+      }
+
+      if self.x == 256 {
+        self.increment_scroll_y();
+      }
+
+      if self.x == 257 {
+        self.transfer_address_x();
+      }
+
+      if self.y == 261 && self.x >= 280 && self.x < 305 {
+        self.transfer_address_y();
+      }
     }
 
     // entering vblank
@@ -332,8 +547,6 @@ impl PPU {
     } else {
       self.x = 0;
       self.y = 0;
-
-      self.status.set_vertical_blank(false);
     }
   }
 }
