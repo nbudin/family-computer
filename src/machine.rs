@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, fmt::Debug};
 
 use crate::{
   cartridge::{load_cartridge, BoxCartridge},
@@ -21,6 +21,19 @@ pub struct Machine {
   pub last_executed_instruction: Option<ExecutedInstruction>,
 }
 
+impl Debug for Machine {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Machine")
+      .field("cartridge", &self.cartridge)
+      .field("cpu_state", &self.cpu_state)
+      .field("ppu_state", &self.ppu_state)
+      .field("controllers", &self.controllers)
+      .field("cycle_count", &self.cycle_count)
+      .field("last_executed_instruction", &self.last_executed_instruction)
+      .finish_non_exhaustive()
+  }
+}
+
 impl Clone for Machine {
   fn clone(&self) -> Self {
     Self {
@@ -30,7 +43,7 @@ impl Clone for Machine {
       ppu_state: self.ppu_state.clone(),
       controllers: self.controllers.clone(),
       cycle_count: self.cycle_count.clone(),
-      last_executed_instruction: self.last_executed_instruction.clone(),
+      last_executed_instruction: None,
     }
   }
 }
@@ -58,34 +71,32 @@ impl Machine {
     }
   }
 
+  pub fn tick_cpu(&mut self) {
+    let (new_cpu_state, executed_instruction) = self.cpu_state.clone().tick(self);
+    self.cycle_count += 1;
+    self.cpu_state = new_cpu_state;
+
+    if let Some(instruction) = executed_instruction {
+      self.last_executed_instruction = Some(instruction);
+    }
+  }
+
+  pub fn tick_ppu(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
+    let new_ppu_state = self.ppu_state.clone().tick(self, pixbuf);
+    self.ppu_state = new_ppu_state;
+  }
+
   pub fn tick(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
-    let mut prev_state = self.clone();
     if self.cpu_state.wait_cycles == 0 && !env::var("DISASSEMBLE").unwrap_or_default().is_empty() {
       if let Some(executed_instruction) = &self.last_executed_instruction {
-        println!(
-          "{}",
-          executed_instruction.disassemble(&mut prev_state, &self)
-        );
+        println!("{}", executed_instruction.disassemble());
       }
     }
 
-    self.last_executed_instruction = {
-      let (new_cpu_state, executed_instruction) = self.cpu_state.clone().tick(self);
-      self.cycle_count += 1;
-      self.cpu_state = new_cpu_state;
-
-      executed_instruction
-    };
-
-    {
-      let new_ppu_state = self
-        .ppu_state
-        .clone()
-        .tick(self, pixbuf)
-        .tick(self, pixbuf)
-        .tick(self, pixbuf);
-      self.ppu_state = new_ppu_state;
-    }
+    self.tick_cpu();
+    self.tick_ppu(pixbuf);
+    self.tick_ppu(pixbuf);
+    self.tick_ppu(pixbuf);
   }
 
   pub fn nmi(&mut self) {

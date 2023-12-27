@@ -323,7 +323,16 @@ impl Instruction {
       Instruction::TXS => 2,
       Instruction::TYA => 2,
 
-      Instruction::Illegal(instruction, _op) => instruction.base_cycles(),
+      Instruction::Illegal(instruction, op) => match **instruction {
+        Instruction::NOP => match op {
+          Some(Operand::Absolute(_)) => 4,
+          Some(Operand::AbsoluteX(_)) => 4,
+          Some(Operand::ZeroPage(_)) => 3,
+          Some(Operand::ZeroPageX(_)) => 4,
+          _ => instruction.base_cycles(),
+        },
+        _ => instruction.base_cycles(),
+      },
 
       // Unofficial instructions
       Self::DCP(op) => match op {

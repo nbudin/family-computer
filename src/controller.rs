@@ -12,7 +12,7 @@ pub struct ControllerState {
   pub a: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Controller {
   state: ControllerState,
   shift_register: u8,

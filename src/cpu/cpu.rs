@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::machine::Machine;
 
 use super::{Instruction, LoadInstruction, Operand};
@@ -28,12 +30,22 @@ pub struct CPU {
 pub struct ExecutedInstruction {
   pub instruction: Instruction,
   pub opcode: u8,
+  pub prev_state: Box<Machine>,
+}
+
+impl Debug for ExecutedInstruction {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("ExecutedInstruction")
+      .field("instruction", &self.instruction)
+      .field("opcode", &self.opcode)
+      .finish_non_exhaustive()
+  }
 }
 
 impl ExecutedInstruction {
-  pub fn disassemble(&self, prev_state: &mut Machine, cur_state: &Machine) -> String {
-    let prev_cpu = prev_state.cpu_state.clone();
-    let cur_ppu = &cur_state.ppu_state;
+  pub fn disassemble(&self) -> String {
+    let prev_cpu = &self.prev_state.cpu_state;
+    let prev_ppu = &self.prev_state.ppu_state;
 
     format!(
       "{:04X}  {:02X} {:6}{}{:32}A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:3},{:3} CYC:{}",
@@ -54,15 +66,15 @@ impl ExecutedInstruction {
       } else {
         " "
       },
-      self.instruction.disassemble(&prev_cpu, prev_state),
+      self.instruction.disassemble(&prev_cpu, &mut self.prev_state.clone()),
       prev_cpu.a,
       prev_cpu.x,
       prev_cpu.y,
       prev_cpu.get_status_register(),
       prev_cpu.s,
-      cur_ppu.scanline,
-      cur_ppu.cycle,
-      cur_state.cycle_count
+      prev_ppu.scanline,
+      prev_ppu.cycle,
+      self.prev_state.cycle_count
     )
   }
 }
@@ -194,6 +206,8 @@ impl CPU {
   }
 
   pub fn tick(mut self, state: &mut Machine) -> (Self, Option<ExecutedInstruction>) {
+    let prev_state = state.clone();
+
     if self.nmi_set {
       self.push_stack(u8::try_from((self.pc & 0xff00) >> 8).unwrap(), state);
       self.push_stack(u8::try_from(self.pc & 0xff).unwrap(), state);
@@ -239,25 +253,29 @@ impl CPU {
     self.unused_flag = true;
 
     let (instruction, opcode) = self.load_instruction(state);
-
     self.wait_cycles = instruction.base_cycles() - 1;
-
-    self.execute_instruction(&instruction, state);
+    self.execute_instruction(&instruction, state, true);
 
     (
       self,
       Some(ExecutedInstruction {
         instruction,
         opcode,
+        prev_state: Box::new(prev_state),
       }),
     )
   }
 
-  fn execute_instruction(&mut self, instruction: &Instruction, state: &mut Machine) {
+  fn execute_instruction(
+    &mut self,
+    instruction: &Instruction,
+    state: &mut Machine,
+    add_page_boundary_cross_cycles: bool,
+  ) {
     match &instruction {
       Instruction::ADC(op) => {
         let (value, page_boundary_crossed) = op.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
 
@@ -271,7 +289,7 @@ impl CPU {
 
       Instruction::AND(op) => {
         let (value, page_boundary_crossed) = op.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
         self.a &= value;
@@ -343,7 +361,6 @@ impl CPU {
       Instruction::BPL(addr) => {
         if !self.negative_flag {
           self.wait_cycles += 1;
-          self.wait_cycles += 1;
           if self.set_pc(&addr, state) {
             self.wait_cycles += 1;
           }
@@ -401,7 +418,7 @@ impl CPU {
 
       Instruction::CMP(ref op) => {
         let (value, page_boundary_crossed) = op.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
         self.carry_flag = self.a >= value;
@@ -426,8 +443,8 @@ impl CPU {
       }
 
       Instruction::DCP(op) => {
-        self.execute_instruction(&Instruction::DEC(op.clone()), state);
-        self.execute_instruction(&Instruction::CMP(op.clone()), state);
+        self.execute_instruction(&Instruction::DEC(op.clone()), state, false);
+        self.execute_instruction(&Instruction::CMP(op.clone()), state, false);
       }
 
       Instruction::DEC(op) => {
@@ -455,7 +472,7 @@ impl CPU {
 
       Instruction::EOR(op) => {
         let (value, page_boundary_crossed) = op.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
 
@@ -486,8 +503,8 @@ impl CPU {
       }
 
       Instruction::ISB(op) => {
-        self.execute_instruction(&Instruction::INC(op.clone()), state);
-        self.execute_instruction(&Instruction::SBC(op.clone()), state);
+        self.execute_instruction(&Instruction::INC(op.clone()), state, false);
+        self.execute_instruction(&Instruction::SBC(op.clone()), state, false);
       }
 
       Instruction::JMP(addr) => {
@@ -504,13 +521,13 @@ impl CPU {
       }
 
       Instruction::LAX(addr) => {
-        self.execute_instruction(&Instruction::LDA(addr.clone()), state);
-        self.execute_instruction(&Instruction::TAX, state);
+        self.execute_instruction(&Instruction::LDA(addr.clone()), state, true);
+        self.execute_instruction(&Instruction::TAX, state, false);
       }
 
       Instruction::LDA(ref addr) => {
         let (value, page_boundary_crossed) = addr.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
         self.a = value;
@@ -520,7 +537,7 @@ impl CPU {
 
       Instruction::LDX(addr) => {
         let (value, page_boundary_crossed) = addr.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
         self.x = value;
@@ -530,7 +547,7 @@ impl CPU {
 
       Instruction::LDY(addr) => {
         let (value, page_boundary_crossed) = addr.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
         self.y = value;
@@ -551,7 +568,7 @@ impl CPU {
 
       Instruction::ORA(op) => {
         let (value, page_boundary_crossed) = op.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
         self.a = self.a | value;
@@ -585,13 +602,13 @@ impl CPU {
       }
 
       Instruction::RLA(op) => {
-        self.execute_instruction(&Instruction::ROL(op.clone()), state);
-        self.execute_instruction(&Instruction::AND(op.clone()), state);
+        self.execute_instruction(&Instruction::ROL(op.clone()), state, false);
+        self.execute_instruction(&Instruction::AND(op.clone()), state, false);
       }
 
       Instruction::RRA(op) => {
-        self.execute_instruction(&Instruction::ROR(op.clone()), state);
-        self.execute_instruction(&Instruction::ADC(op.clone()), state);
+        self.execute_instruction(&Instruction::ROR(op.clone()), state, false);
+        self.execute_instruction(&Instruction::ADC(op.clone()), state, false);
       }
 
       Instruction::ROL(op) => {
@@ -639,7 +656,7 @@ impl CPU {
 
       Instruction::SBC(op) => {
         let (value, page_boundary_crossed) = op.eval(self, state);
-        if page_boundary_crossed {
+        if page_boundary_crossed && add_page_boundary_cross_cycles {
           self.wait_cycles += 1;
         }
 
@@ -667,13 +684,13 @@ impl CPU {
       }
 
       Instruction::SLO(op) => {
-        self.execute_instruction(&Instruction::ASL(op.clone()), state);
-        self.execute_instruction(&Instruction::ORA(op.clone()), state);
+        self.execute_instruction(&Instruction::ASL(op.clone()), state, false);
+        self.execute_instruction(&Instruction::ORA(op.clone()), state, false);
       }
 
       Instruction::SRE(op) => {
-        self.execute_instruction(&Instruction::LSR(op.clone()), state);
-        self.execute_instruction(&Instruction::EOR(op.clone()), state);
+        self.execute_instruction(&Instruction::LSR(op.clone()), state, false);
+        self.execute_instruction(&Instruction::EOR(op.clone()), state, false);
       }
 
       Instruction::STA(addr) => {
@@ -722,7 +739,21 @@ impl CPU {
         self.negative_flag = (self.a & (1 << 7)) > 0;
       }
 
-      Instruction::Illegal(instruction, _op) => self.execute_instruction(instruction, state),
+      Instruction::Illegal(instruction, op) => {
+        match **instruction {
+          Instruction::NOP => match op {
+            Some(op) => {
+              let (_addr, page_boundary_crossed) = op.eval(self, state);
+              if page_boundary_crossed && add_page_boundary_cross_cycles {
+                self.wait_cycles += 1;
+              }
+            }
+            _ => {}
+          },
+          _ => {}
+        }
+        self.execute_instruction(instruction, state, false)
+      }
     }
   }
 }
