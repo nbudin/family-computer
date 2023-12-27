@@ -22,7 +22,7 @@ impl INESRom {
     Self::from_reader(&mut file)
   }
 
-  pub fn from_reader<R: Read>(reader: &mut R) -> Result<Self, Error> {
+  pub fn from_reader<R: Read + ?Sized>(reader: &mut R) -> Result<Self, Error> {
     let mut header: [u8; 16] = [0; 16];
     reader.read_exact(&mut header)?;
 

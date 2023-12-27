@@ -167,3 +167,44 @@ impl Machine {
     controller.update(f);
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use similar_asserts::assert_eq;
+  use std::io::{BufReader, BufWriter, Write};
+
+  pub use super::*;
+
+  #[test]
+  fn nestest_smoke_test() {
+    let nestest_data = include_bytes!("../smoketest/nestest.nes");
+    let expected_log = include_str!("../smoketest/nestest-good.log");
+    let rom = INESRom::from_reader(&mut BufReader::new(&nestest_data[..])).unwrap();
+
+    let mut machine = Machine::from_rom(rom);
+    machine.cycle_count = 7;
+    machine.ppu_state.cycle = 21;
+    machine.cpu_state.pc = 0xc000;
+
+    let mut fake_pixbuf = [0; PIXEL_BUFFER_SIZE];
+    let disasm_bytes: Vec<u8> = Vec::with_capacity(1 * 1024 * 1024);
+    let mut disasm_writer = BufWriter::new(disasm_bytes);
+
+    while machine.cycle_count < 26560 {
+      machine.tick(&mut fake_pixbuf);
+
+      if machine.cpu_state.wait_cycles == 0 {
+        if let Some(instruction) = &machine.last_executed_instruction {
+          disasm_writer
+            .write_fmt(format_args!("{}\r\n", instruction.disassemble()))
+            .unwrap();
+        }
+      }
+    }
+
+    disasm_writer.flush().unwrap();
+    let disasm: String = String::from_utf8(disasm_writer.into_inner().unwrap()).unwrap();
+
+    assert_eq!(disasm, expected_log);
+  }
+}

@@ -55,11 +55,7 @@ pub async fn run() -> Result<(), EventLoopError> {
   let rom = INESRom::from_file(&rom_path).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
   let mut machine = Machine::from_rom(rom);
-  // machine.reset();
-
-  // temporary testing code
-  machine.cycle_count = 7;
-  machine.ppu_state.cycle = 21;
+  machine.reset();
 
   let mut prev_time = std::time::Instant::now();
 
