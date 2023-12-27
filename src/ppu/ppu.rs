@@ -5,13 +5,13 @@ use crate::{
 
 use super::registers::{PPUControlRegister, PPULoopyRegister, PPUMaskRegister, PPUStatusRegister};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PPUAddressLatch {
   High,
   Low,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PPU {
   pub cycle: i32,
   pub scanline: i32,
@@ -63,7 +63,7 @@ impl PPU {
     }
   }
 
-  pub fn tick(&mut self, machine: &Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
+  pub fn tick(mut self, machine: &mut Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) -> Self {
     if self.scanline >= -1 && self.scanline < 240 {
       if self.scanline == 0 && self.cycle == 0 {
         // Odd frame cycle skip
@@ -203,5 +203,7 @@ impl PPU {
         self.scanline = -1;
       }
     }
+
+    self
   }
 }

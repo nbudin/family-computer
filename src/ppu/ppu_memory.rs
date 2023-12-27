@@ -6,7 +6,7 @@ impl PPU {
   pub fn get_ppu_mem(&self, machine: &Machine, addr: u16) -> u8 {
     let addr = addr & 0x3fff;
 
-    let cartridge = machine.cartridge.read().unwrap();
+    let cartridge = &machine.cartridge;
 
     match cartridge.get_ppu_mem(addr) {
       Some(value) => value,
@@ -55,10 +55,10 @@ impl PPU {
     }
   }
 
-  pub fn set_ppu_mem(&mut self, machine: &Machine, addr: u16, value: u8) {
+  pub fn set_ppu_mem(&mut self, machine: &mut Machine, addr: u16, value: u8) {
     let addr = addr & 0x3fff;
 
-    let mut cartridge = (*machine.cartridge).write().unwrap();
+    let cartridge = &mut machine.cartridge;
 
     if cartridge.set_ppu_mem(addr, value) {
     } else {

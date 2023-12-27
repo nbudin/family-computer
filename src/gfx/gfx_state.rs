@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use winit::{event::WindowEvent, window::Window};
+use winit::window::Window;
 
 use super::node::{RenderablePrepareData, RootNode};
 
@@ -114,11 +114,6 @@ impl<R: RootNode> GfxState<R> {
       self.surface.configure(&self.device, &self.config);
       self.root.resize(&self.window);
     }
-  }
-
-  pub fn input(&mut self, _event: &WindowEvent) -> bool {
-    // TODO
-    false
   }
 
   pub fn update(&mut self, delta_time: Duration) {

@@ -1,6 +1,6 @@
 use super::{Cartridge, CartridgeMirroring, CartridgeState};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NROMState {
   pub prg_ram: [u8; 8 * 1024],
 }
@@ -15,7 +15,7 @@ impl NROMState {
 
 impl CartridgeState for NROMState {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NROM {
   pub prg_rom: [u8; 32 * 1024],
   pub chr_rom: [u8; 8 * 1024],

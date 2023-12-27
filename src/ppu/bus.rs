@@ -3,7 +3,7 @@ use crate::machine::Machine;
 use super::{PPUAddressLatch, PPULoopyRegister, PPURegister, PPU};
 
 impl PPU {
-  pub fn read_bus(&mut self, machine: &Machine, register: PPURegister) -> u8 {
+  pub fn read_bus(mut self, machine: &Machine, register: PPURegister) -> (Self, u8) {
     let mut result: u8 = 0;
 
     match register {
@@ -28,10 +28,10 @@ impl PPU {
       _ => {}
     }
 
-    result
+    (self, result)
   }
 
-  pub fn write_bus(&mut self, machine: &Machine, register: PPURegister, value: u8) {
+  pub fn write_bus(mut self, machine: &mut Machine, register: PPURegister, value: u8) -> Self {
     match register {
       PPURegister::PPUCTRL => {
         self.control = value.into();
@@ -74,5 +74,7 @@ impl PPU {
       }
       _ => {}
     }
+
+    self
   }
 }

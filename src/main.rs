@@ -1,4 +1,5 @@
 mod cartridge;
+pub mod controller;
 mod cpu;
 mod gfx;
 mod ines_rom;
@@ -15,6 +16,7 @@ use winit::{
   error::EventLoopError,
   event::{Event, WindowEvent},
   event_loop::{ControlFlow, EventLoop},
+  keyboard::{Key, NamedKey},
   window::WindowBuilder,
 };
 
@@ -53,7 +55,7 @@ pub async fn run() -> Result<(), EventLoopError> {
   let rom = INESRom::from_file(&rom_path).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
   let mut machine = Machine::from_rom(rom);
-  machine.reset();
+  // machine.reset();
 
   let mut prev_time = std::time::Instant::now();
 
@@ -66,7 +68,7 @@ pub async fn run() -> Result<(), EventLoopError> {
     match event {
       Event::AboutToWait => {
         gfx_state.root.update_pixbuf(|pixbuf| {
-          machine.step(pixbuf);
+          machine.execute_frame(pixbuf);
         });
 
         let sleepy_time =
@@ -76,36 +78,67 @@ pub async fn run() -> Result<(), EventLoopError> {
         gfx_state.window().request_redraw();
       }
       Event::WindowEvent { window_id, event } if window_id == gfx_state.window().id() => {
-        if !gfx_state.input(&event) {
-          match event {
-            WindowEvent::CloseRequested => {
-              target.exit();
-            }
-            WindowEvent::Resized(physical_size) => {
-              gfx_state.resize(physical_size);
-            }
-            WindowEvent::RedrawRequested => {
-              let current_time = std::time::Instant::now();
-              let delta_time = current_time - prev_time;
-              prev_time = current_time;
-
-              gfx_state.update(delta_time);
-              match gfx_state.render() {
-                Ok(_) => {}
-                // Reconfigure the surface if lost
-                Err(wgpu::SurfaceError::Lost) => gfx_state.resize(gfx_state.size),
-                // The system is out of memory, we should probably quit
-                Err(wgpu::SurfaceError::OutOfMemory) => target.exit(),
-                // All other errors (Outdated, Timeout) should be resolved by the next frame
-                Err(e) => eprintln!("{:?}", e),
-              }
-            }
-            // WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-            //   // new_inner_size is &&mut so we have to dereference it twice
-            //   gfx_state.resize(**new_inner_size);
-            // }
-            _ => {}
+        match event {
+          WindowEvent::CloseRequested => {
+            target.exit();
           }
+          WindowEvent::KeyboardInput { event, .. } => match event.logical_key {
+            Key::Named(key_name) => match key_name {
+              NamedKey::ArrowUp => {
+                machine.update_controller(0, |state| state.set_up(event.state.is_pressed()))
+              }
+              NamedKey::ArrowLeft => {
+                machine.update_controller(0, |state| state.set_left(event.state.is_pressed()))
+              }
+              NamedKey::ArrowRight => {
+                machine.update_controller(0, |state| state.set_right(event.state.is_pressed()))
+              }
+              NamedKey::ArrowDown => {
+                machine.update_controller(0, |state| state.set_down(event.state.is_pressed()))
+              }
+              NamedKey::Enter => {
+                machine.update_controller(0, |state| state.set_start(event.state.is_pressed()))
+              }
+              NamedKey::Space => {
+                machine.update_controller(0, |state| state.set_select(event.state.is_pressed()))
+              }
+              _ => {}
+            },
+            Key::Character(character) => match character.as_str() {
+              "a" => machine.update_controller(0, |state| state.set_a(event.state.is_pressed())),
+              "s" => machine.update_controller(0, |state| state.set_b(event.state.is_pressed())),
+              _ => {}
+            },
+            _ => {}
+          },
+          WindowEvent::Resized(physical_size) => {
+            gfx_state.resize(physical_size);
+          }
+          WindowEvent::RedrawRequested => {
+            let current_time = std::time::Instant::now();
+            let delta_time = current_time - prev_time;
+            prev_time = current_time;
+
+            gfx_state.update(delta_time);
+            match gfx_state.render() {
+              Ok(_) => {}
+              // Reconfigure the surface if lost
+              Err(wgpu::SurfaceError::Lost) => gfx_state.resize(gfx_state.size),
+              // The system is out of memory, we should probably quit
+              Err(wgpu::SurfaceError::OutOfMemory) => target.exit(),
+              // All other errors (Outdated, Timeout) should be resolved by the next frame
+              Err(e) => eprintln!("{:?}", e),
+            }
+          }
+          // WindowEvent::ScaleFactorChanged {
+          //   scale_factor,
+          //   inner_size_writer,
+          // } => {
+          //   let new_inner_size = gfx_state.window().inner_size() * scale_factor;
+          //   // new_inner_size is &&mut so we have to dereference it twice
+          //   gfx_state.resize(**new_inner_size);
+          // }
+          _ => {}
         }
       }
       _ => {}

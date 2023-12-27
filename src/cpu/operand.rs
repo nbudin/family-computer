@@ -1,8 +1,8 @@
-use std::fmt::Display;
-
 use crate::{cpu::CPU, machine::Machine};
 
-#[derive(Debug)]
+use super::LoadInstruction;
+
+#[derive(Debug, Clone)]
 pub enum Operand {
   Accumulator,
   Immediate(u8),
@@ -19,7 +19,7 @@ pub enum Operand {
 }
 
 impl Operand {
-  pub fn get_addr(&self, cpu_state: &CPU, machine_state: &Machine) -> (u16, bool) {
+  pub fn get_addr(&self, cpu_state: &CPU, machine_state: &mut Machine) -> (u16, bool) {
     let mut page_boundary_crossed = false;
     let result_addr = match self {
       Operand::ZeroPage(addr) => u16::from(*addr),
@@ -27,18 +27,20 @@ impl Operand {
       Operand::ZeroPageY(addr) => u16::from(cpu_state.y.wrapping_add(*addr)),
       Operand::Absolute(addr) => *addr,
       Operand::AbsoluteX(addr) => {
-        let new_addr = *addr + u16::from(cpu_state.x);
+        let new_addr = (*addr).wrapping_add(u16::from(cpu_state.x));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
       Operand::AbsoluteY(addr) => {
-        let new_addr = *addr + u16::from(cpu_state.y);
+        let new_addr = (*addr).wrapping_add(u16::from(cpu_state.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
       Operand::Indirect(addr) => {
         let low = machine_state.get_cpu_mem(*addr);
-        let high = machine_state.get_cpu_mem(*addr + 1);
+        let high = machine_state.get_cpu_mem(
+          (*addr & 0xff00) + u16::from(u8::try_from(*addr & 0xff).unwrap().wrapping_add(1)),
+        );
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectX(addr) => {
@@ -51,7 +53,7 @@ impl Operand {
         let low = machine_state.get_cpu_mem(u16::from(*zp_addr));
         let high = machine_state.get_cpu_mem(u16::from(zp_addr.wrapping_add(1)));
         let addr = (u16::from(high) << 8) + u16::from(low);
-        let new_addr = addr + u16::from(cpu_state.y);
+        let new_addr = addr.wrapping_add(u16::from(cpu_state.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
@@ -63,7 +65,7 @@ impl Operand {
     (result_addr, page_boundary_crossed)
   }
 
-  pub fn eval(&self, cpu_state: &CPU, machine_state: &Machine) -> (u8, bool) {
+  pub fn eval(&self, cpu_state: &CPU, machine_state: &mut Machine) -> (u8, bool) {
     match self {
       Operand::Accumulator => (cpu_state.a, false),
       Operand::Immediate(value) => (*value, false),
@@ -73,23 +75,98 @@ impl Operand {
       }
     }
   }
-}
 
-impl Display for Operand {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+  pub fn to_bytes(&self) -> Vec<u8> {
     match self {
-      Operand::Accumulator => f.write_str(""),
-      Operand::Immediate(value) => f.write_fmt(format_args!("#${:02x}", value)),
-      Operand::Absolute(addr) => f.write_fmt(format_args!("${:04x}", addr)),
-      Operand::AbsoluteX(addr) => f.write_fmt(format_args!("${:04x},x", addr)),
-      Operand::AbsoluteY(addr) => f.write_fmt(format_args!("${:04x},y", addr)),
-      Operand::ZeroPage(zp_addr) => f.write_fmt(format_args!("${:02x}", zp_addr)),
-      Operand::ZeroPageX(zp_addr) => f.write_fmt(format_args!("${:02x},x", zp_addr)),
-      Operand::ZeroPageY(zp_addr) => f.write_fmt(format_args!("${:02x},y", zp_addr)),
-      Operand::Indirect(addr) => f.write_fmt(format_args!("(${:04x})", addr)),
-      Operand::IndirectX(zp_addr) => f.write_fmt(format_args!("(${:02x},x)", zp_addr)),
-      Operand::IndirectY(zp_addr) => f.write_fmt(format_args!("(${:02x}),y", zp_addr)),
-      Operand::Relative(offset) => f.write_fmt(format_args!("{}", offset)),
+      Operand::Accumulator => vec![],
+      Operand::Immediate(value) => vec![*value],
+      Operand::Absolute(addr)
+      | Operand::AbsoluteX(addr)
+      | Operand::AbsoluteY(addr)
+      | Operand::Indirect(addr) => {
+        vec![(*addr & 0xff) as u8, (*addr >> 8) as u8]
+      }
+      Operand::ZeroPage(zp_addr) | Operand::ZeroPageX(zp_addr) | Operand::ZeroPageY(zp_addr) => {
+        vec![*zp_addr]
+      }
+      Operand::IndirectX(offset) | Operand::IndirectY(offset) => vec![*offset],
+      Operand::Relative(offset) => vec![*offset as u8],
+    }
+  }
+
+  pub fn disassemble(&self, cpu: &CPU, machine_state: &mut Machine, eval: bool) -> String {
+    let operand_formatted = match self {
+      Operand::Accumulator => "A".to_owned(),
+      Operand::Immediate(value) => format!("#${:02X}", value),
+      Operand::Absolute(addr) => format!("${:04X}", addr),
+      Operand::AbsoluteX(addr) => format!("${:04X},X", addr),
+      Operand::AbsoluteY(addr) => format!("${:04X},Y", addr),
+      Operand::ZeroPage(zp_addr) => format!("${:02X}", zp_addr),
+      Operand::ZeroPageX(zp_addr) => format!("${:02X},X", zp_addr),
+      Operand::ZeroPageY(zp_addr) => format!("${:02X},Y", zp_addr),
+      Operand::Indirect(addr) => format!("(${:04X})", addr),
+      Operand::IndirectX(zp_addr) => format!("(${:02X},X)", zp_addr),
+      Operand::IndirectY(zp_addr) => format!("(${:02X}),Y", zp_addr),
+      Operand::Relative(offset) => format!("${:04X}", cpu.get_pc() as i32 + 2 + *offset as i32),
+    };
+
+    if eval
+      && !matches!(
+        self,
+        Operand::Immediate(_) | Operand::Accumulator | Operand::Relative(_)
+      )
+    {
+      match self {
+        Operand::AbsoluteX(_) | Operand::AbsoluteY(_) => {
+          format!(
+            "{} @ {:04X} = {:02X}",
+            operand_formatted,
+            self.get_addr(cpu, machine_state).0,
+            self.eval(cpu, machine_state).0
+          )
+        }
+        Operand::ZeroPageX(_) | Operand::ZeroPageY(_) => {
+          format!(
+            "{} @ {:02X} = {:02X}",
+            operand_formatted,
+            self.get_addr(cpu, machine_state).0,
+            self.eval(cpu, machine_state).0
+          )
+        }
+        Operand::Indirect(_) => {
+          format!(
+            "{} = {:04X}",
+            operand_formatted,
+            self.get_addr(cpu, machine_state).0
+          )
+        }
+        Operand::IndirectX(zp_addr) => format!(
+          "{} @ {:02X} = {:04X} = {:02X}",
+          operand_formatted,
+          cpu.x.wrapping_add(*zp_addr),
+          self.get_addr(cpu, machine_state).0,
+          self.eval(cpu, machine_state).0
+        ),
+        Operand::IndirectY(zp_addr) => {
+          let low = machine_state.get_cpu_mem(u16::from(*zp_addr));
+          let high = machine_state.get_cpu_mem(u16::from(zp_addr.wrapping_add(1)));
+          let addr = (u16::from(high) << 8) + u16::from(low);
+          format!(
+            "{} = {:04X} @ {:04X} = {:02X}",
+            operand_formatted,
+            addr,
+            self.get_addr(cpu, machine_state).0,
+            self.eval(cpu, machine_state).0
+          )
+        }
+        _ => format!(
+          "{} = {:02X}",
+          operand_formatted,
+          self.eval(cpu, machine_state).0
+        ),
+      }
+    } else {
+      operand_formatted
     }
   }
 }

@@ -1,3 +1,5 @@
+use dyn_clone::DynClone;
+
 use self::nrom::NROM;
 use crate::ines_rom::INESRom;
 use std::fmt::Debug;
@@ -12,7 +14,7 @@ pub enum CartridgeMirroring {
   VERTICAL,
 }
 
-pub trait Cartridge: Debug {
+pub trait Cartridge: Debug + DynClone {
   fn from_ines_rom(rom: INESRom) -> Self
   where
     Self: Sized;
