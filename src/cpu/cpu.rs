@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::machine::Machine;
 
-use super::{Instruction, Operand};
+use super::{ExecutedInstruction, Instruction, Operand};
 
 #[derive(Debug, Clone)]
 pub struct CPU {
@@ -24,60 +24,6 @@ pub struct CPU {
 
   pub nmi_set: bool,
   pub irq_set: bool,
-}
-
-#[derive(Clone)]
-pub struct ExecutedInstruction {
-  pub instruction: Instruction,
-  pub opcode: u8,
-  pub disassembled_instruction: String,
-  pub prev_cpu: CPU,
-  pub scanline: i32,
-  pub cycle: i32,
-  pub cycle_count: u64,
-}
-
-impl Debug for ExecutedInstruction {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("ExecutedInstruction")
-      .field("instruction", &self.instruction)
-      .field("opcode", &self.opcode)
-      .finish_non_exhaustive()
-  }
-}
-
-impl ExecutedInstruction {
-  pub fn disassemble(&self) -> String {
-    format!(
-      "{:04X}  {:02X} {:6}{}{:32}A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:3},{:3} CYC:{}",
-      self.prev_cpu.pc,
-      self.opcode,
-      self
-        .instruction
-        .operand()
-        .map(|op| op
-          .to_bytes()
-          .into_iter()
-          .map(|byte| format!("{:02X}", byte))
-          .collect::<Vec<_>>()
-          .join(" "))
-        .unwrap_or_default(),
-      if matches!(self.instruction, Instruction::Illegal(_, _)) {
-        "*"
-      } else {
-        " "
-      },
-      self.disassembled_instruction,
-      self.prev_cpu.a,
-      self.prev_cpu.x,
-      self.prev_cpu.y,
-      self.prev_cpu.get_status_register(),
-      self.prev_cpu.s,
-      self.scanline,
-      self.cycle,
-      self.cycle_count
-    )
-  }
 }
 
 impl CPU {

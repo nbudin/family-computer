@@ -488,31 +488,6 @@ impl Instruction {
     }
   }
 
-  pub fn disassemble(&self, machine_state: &Machine) -> String {
-    let instruction_name: &'static str = match self {
-      Instruction::Illegal(instruction, _op) => <&'static str>::from(*instruction.clone()),
-      _ => self.into(),
-    };
-
-    let eval = match self {
-      Self::JSR(_) => false,
-      Self::JMP(op) => match op {
-        Operand::Indirect(_) => true,
-        _ => false,
-      },
-      _ => self.operand().is_some(),
-    };
-
-    match self.operand() {
-      Some(op) => format!(
-        "{} {}",
-        instruction_name,
-        op.disassemble(machine_state, eval)
-      ),
-      None => instruction_name.to_owned(),
-    }
-  }
-
   fn load_byte(state: &mut Machine) -> u8 {
     let byte = state.get_cpu_mem(state.cpu.pc);
     CPU::set_pc(&Operand::Absolute(state.cpu.pc.wrapping_add(1)), state);
