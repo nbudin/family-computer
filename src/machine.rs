@@ -2,7 +2,7 @@ use std::{env, fmt::Debug};
 
 use crate::{
   cartridge::{load_cartridge, BoxCartridge},
-  controller::{Controller, ControllerState},
+  controller::Controller,
   cpu::{ExecutedInstruction, CPU},
   gfx::crt_screen::PIXEL_BUFFER_SIZE,
   ines_rom::INESRom,
@@ -55,7 +55,7 @@ impl Machine {
       cartridge: load_cartridge(rom),
       cpu: CPU::new(),
       ppu: PPU::new(),
-      controllers: [Controller::new(); 2],
+      controllers: [Controller::new(), Controller::new()],
       cycle_count: 0,
       last_executed_instruction: None,
     }
@@ -114,15 +114,13 @@ impl Machine {
       let actual_address = addr % 0x800;
       self.work_ram[usize::from(actual_address)]
     } else if addr < 0x4000 {
-      self
-        .ppu
-        .read_bus_readonly(self, PPURegister::from_address(addr))
+      PPU::read_bus_readonly(self, PPURegister::from_address(addr))
     } else if addr < 0x4016 {
       // TODO APU registers
       0
     } else if addr < 0x4018 {
-      let mut controller = self.controllers[addr as usize - 0x4016];
-      controller.read()
+      let controller = &self.controllers[addr as usize - 0x4016];
+      controller.read_readonly()
     } else if addr < 0x4020 {
       // TODO: CPU test mode
       0
@@ -136,17 +134,12 @@ impl Machine {
       let actual_address = addr % 0x800;
       self.work_ram[usize::from(actual_address)]
     } else if addr < 0x4000 {
-      let (new_ppu_state, result) = self
-        .ppu
-        .clone()
-        .read_bus(self, PPURegister::from_address(addr));
-      self.ppu = new_ppu_state;
-      result
+      PPU::read_bus(self, PPURegister::from_address(addr))
     } else if addr < 0x4016 {
       // TODO APU registers
       0
     } else if addr < 0x4018 {
-      let mut controller = self.controllers[addr as usize - 0x4016];
+      let controller = &mut self.controllers[addr as usize - 0x4016];
       controller.read()
     } else if addr < 0x4020 {
       // TODO: CPU test mode
@@ -161,32 +154,20 @@ impl Machine {
       let actual_address = addr % 0x800;
       self.work_ram[usize::from(actual_address)] = value;
     } else if addr < 0x4000 {
-      let new_ppu_state = self
-        .ppu
-        .clone()
-        .write_bus(self, PPURegister::from_address(addr), value);
-      self.ppu = new_ppu_state;
+      PPU::write_bus(self, PPURegister::from_address(addr), value);
     } else if addr < 0x4016 {
       // TODO APU registers
       ()
     } else if addr < 0x4018 {
-      let mut controller = self.controllers[addr as usize - 0x4016];
-      controller.write();
+      let controller_index = addr as usize - 0x4016;
+      let controller = &mut self.controllers[controller_index];
+      controller.poll();
     } else if addr < 0x4020 {
       // TODO: CPU test mode
       ()
     } else {
       self.cartridge.set_cpu_mem(addr, value)
     }
-  }
-
-  pub fn update_controller<F: FnOnce(&mut ControllerState) -> ()>(
-    &self,
-    controller_index: usize,
-    f: F,
-  ) {
-    let mut controller = self.controllers[controller_index];
-    controller.update(f);
   }
 }
 

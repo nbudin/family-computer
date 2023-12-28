@@ -84,29 +84,29 @@ pub async fn run() -> Result<(), EventLoopError> {
           }
           WindowEvent::KeyboardInput { event, .. } => match event.logical_key {
             Key::Named(key_name) => match key_name {
-              NamedKey::ArrowUp => {
-                machine.update_controller(0, |state| state.set_up(event.state.is_pressed()))
-              }
-              NamedKey::ArrowLeft => {
-                machine.update_controller(0, |state| state.set_left(event.state.is_pressed()))
-              }
-              NamedKey::ArrowRight => {
-                machine.update_controller(0, |state| state.set_right(event.state.is_pressed()))
-              }
-              NamedKey::ArrowDown => {
-                machine.update_controller(0, |state| state.set_down(event.state.is_pressed()))
-              }
-              NamedKey::Enter => {
-                machine.update_controller(0, |state| state.set_start(event.state.is_pressed()))
-              }
-              NamedKey::Space => {
-                machine.update_controller(0, |state| state.set_select(event.state.is_pressed()))
-              }
+              NamedKey::ArrowUp => machine.controllers[0]
+                .state
+                .set_up(event.state.is_pressed()),
+              NamedKey::ArrowLeft => machine.controllers[0]
+                .state
+                .set_left(event.state.is_pressed()),
+              NamedKey::ArrowRight => machine.controllers[0]
+                .state
+                .set_right(event.state.is_pressed()),
+              NamedKey::ArrowDown => machine.controllers[0]
+                .state
+                .set_down(event.state.is_pressed()),
+              NamedKey::Enter => machine.controllers[0]
+                .state
+                .set_start(event.state.is_pressed()),
+              NamedKey::Space => machine.controllers[0]
+                .state
+                .set_select(event.state.is_pressed()),
               _ => {}
             },
             Key::Character(character) => match character.as_str() {
-              "a" => machine.update_controller(0, |state| state.set_a(event.state.is_pressed())),
-              "s" => machine.update_controller(0, |state| state.set_b(event.state.is_pressed())),
+              "a" => machine.controllers[0].state.set_a(event.state.is_pressed()),
+              "s" => machine.controllers[0].state.set_b(event.state.is_pressed()),
               _ => {}
             },
             _ => {}

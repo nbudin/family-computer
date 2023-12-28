@@ -12,9 +12,9 @@ pub struct ControllerState {
   pub a: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Controller {
-  state: ControllerState,
+  pub state: ControllerState,
   shift_register: u8,
 }
 
@@ -26,17 +26,21 @@ impl Controller {
     }
   }
 
-  pub fn update<F: FnOnce(&mut ControllerState) -> ()>(&mut self, f: F) {
-    f(&mut self.state);
-  }
-
   pub fn read(&mut self) -> u8 {
     let result = if self.shift_register & 0x80 > 0 { 1 } else { 0 };
     self.shift_register <<= 1;
     result
   }
 
-  pub fn write(&mut self) {
+  pub fn read_readonly(&self) -> u8 {
+    if self.shift_register & 0x80 > 0 {
+      1
+    } else {
+      0
+    }
+  }
+
+  pub fn poll(&mut self) {
     self.shift_register = self.state.into();
   }
 }

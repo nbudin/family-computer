@@ -55,7 +55,7 @@ impl PPU {
     }
   }
 
-  pub fn set_ppu_mem(&mut self, machine: &mut Machine, addr: u16, value: u8) {
+  pub fn set_ppu_mem(machine: &mut Machine, addr: u16, value: u8) {
     let addr = addr & 0x3fff;
 
     let cartridge = &mut machine.cartridge;
@@ -63,31 +63,31 @@ impl PPU {
     if cartridge.set_ppu_mem(addr, value) {
     } else {
       if addr < 0x2000 {
-        self.pattern_tables[(addr as usize & 0x1000) >> 12][addr as usize & 0x0fff] = value;
+        machine.ppu.pattern_tables[(addr as usize & 0x1000) >> 12][addr as usize & 0x0fff] = value;
       } else if addr < 0x3f00 {
         let addr = addr & 0x0fff;
 
         match cartridge.get_mirroring() {
           CartridgeMirroring::HORIZONTAL => {
             if addr < 0x0400 {
-              self.name_tables[0][addr as usize & 0x03ff] = value;
+              machine.ppu.name_tables[0][addr as usize & 0x03ff] = value;
             } else if addr < 0x0800 {
-              self.name_tables[0][addr as usize & 0x03ff] = value;
+              machine.ppu.name_tables[0][addr as usize & 0x03ff] = value;
             } else if addr < 0x0c00 {
-              self.name_tables[1][addr as usize & 0x03ff] = value;
+              machine.ppu.name_tables[1][addr as usize & 0x03ff] = value;
             } else {
-              self.name_tables[1][addr as usize & 0x03ff] = value;
+              machine.ppu.name_tables[1][addr as usize & 0x03ff] = value;
             }
           }
           CartridgeMirroring::VERTICAL => {
             if addr < 0x0400 {
-              self.name_tables[0][addr as usize & 0x03ff] = value;
+              machine.ppu.name_tables[0][addr as usize & 0x03ff] = value;
             } else if addr < 0x0800 {
-              self.name_tables[1][addr as usize & 0x03ff] = value;
+              machine.ppu.name_tables[1][addr as usize & 0x03ff] = value;
             } else if addr < 0x0c00 {
-              self.name_tables[0][addr as usize & 0x03ff] = value;
+              machine.ppu.name_tables[0][addr as usize & 0x03ff] = value;
             } else {
-              self.name_tables[1][addr as usize & 0x03ff] = value;
+              machine.ppu.name_tables[1][addr as usize & 0x03ff] = value;
             }
           }
         }
@@ -100,7 +100,7 @@ impl PPU {
           0x001c => 0x000c,
           _ => addr,
         };
-        self.palette_ram[addr as usize] = value;
+        machine.ppu.palette_ram[addr as usize] = value;
       }
     }
   }
