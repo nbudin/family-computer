@@ -31,3 +31,6 @@ wgpu = {version = "0.18", features = ["webgl"]}
 
 [dev-dependencies]
 similar-asserts = "1.5.0"
+
+[profile.release]
+debug = true

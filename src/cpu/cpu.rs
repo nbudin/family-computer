@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::machine::Machine;
 
-use super::{Instruction, LoadInstruction, Operand};
+use super::{Instruction, Operand};
 
 #[derive(Debug, Clone)]
 pub struct CPU {
@@ -30,7 +30,11 @@ pub struct CPU {
 pub struct ExecutedInstruction {
   pub instruction: Instruction,
   pub opcode: u8,
-  pub prev_state: Box<Machine>,
+  pub disassembled_instruction: String,
+  pub prev_cpu: CPU,
+  pub scanline: i32,
+  pub cycle: i32,
+  pub cycle_count: u64,
 }
 
 impl Debug for ExecutedInstruction {
@@ -44,12 +48,9 @@ impl Debug for ExecutedInstruction {
 
 impl ExecutedInstruction {
   pub fn disassemble(&self) -> String {
-    let prev_cpu = &self.prev_state.cpu_state;
-    let prev_ppu = &self.prev_state.ppu_state;
-
     format!(
       "{:04X}  {:02X} {:6}{}{:32}A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:3},{:3} CYC:{}",
-      prev_cpu.pc,
+      self.prev_cpu.pc,
       self.opcode,
       self
         .instruction
@@ -66,26 +67,16 @@ impl ExecutedInstruction {
       } else {
         " "
       },
-      self.instruction.disassemble(&prev_cpu, &mut self.prev_state.clone()),
-      prev_cpu.a,
-      prev_cpu.x,
-      prev_cpu.y,
-      prev_cpu.get_status_register(),
-      prev_cpu.s,
-      prev_ppu.scanline,
-      prev_ppu.cycle,
-      self.prev_state.cycle_count
+      self.disassembled_instruction,
+      self.prev_cpu.a,
+      self.prev_cpu.x,
+      self.prev_cpu.y,
+      self.prev_cpu.get_status_register(),
+      self.prev_cpu.s,
+      self.scanline,
+      self.cycle,
+      self.cycle_count
     )
-  }
-}
-
-impl LoadInstruction for CPU {
-  fn get_pc(&self) -> u16 {
-    self.pc
-  }
-
-  fn inc_pc(&mut self) {
-    self.pc += 1;
   }
 }
 
@@ -133,26 +124,26 @@ impl CPU {
     self.carry_flag = (value & 1) > 0;
   }
 
-  pub fn set_operand(&mut self, op: &Operand, value: u8, state: &mut Machine) {
+  pub fn set_operand(op: &Operand, value: u8, state: &mut Machine) {
     match op {
-      Operand::Accumulator => self.a = value,
+      Operand::Accumulator => state.cpu.a = value,
       _ => {
-        let addr = op.get_addr(self, state).0;
+        let addr = op.get_addr(state).0;
         state.set_cpu_mem(addr, value);
       }
     }
   }
 
-  pub fn set_pc(&mut self, addr: &Operand, state: &mut Machine) -> bool {
+  pub fn set_pc(addr: &Operand, state: &mut Machine) -> bool {
     match addr {
       Operand::Absolute(_) | Operand::Indirect(_) => {
-        self.pc = addr.get_addr(self, state).0;
+        state.cpu.pc = addr.get_addr(state).0;
         false
       }
       Operand::Relative(offset) => {
-        let (new_pc, _) = self.pc.overflowing_add_signed(i16::from(*offset));
-        let page_boundary_crossed = (new_pc & 0xff00) != (self.pc & 0xff00);
-        self.pc = new_pc;
+        let (new_pc, _) = state.cpu.pc.overflowing_add_signed(i16::from(*offset));
+        let page_boundary_crossed = (new_pc & 0xff00) != (state.cpu.pc & 0xff00);
+        state.cpu.pc = new_pc;
         page_boundary_crossed
       }
       _ => {
@@ -176,583 +167,587 @@ impl CPU {
     values
   }
 
-  fn push_stack(&mut self, value: u8, state: &mut Machine) {
-    state.set_cpu_mem(u16::from(self.s) + 0x100, value);
-    self.s -= 1;
+  fn push_stack(value: u8, state: &mut Machine) {
+    state.set_cpu_mem(u16::from(state.cpu.s) + 0x100, value);
+    state.cpu.s -= 1;
   }
 
-  fn pull_stack(&mut self, state: &mut Machine) -> u8 {
-    self.s += 1;
-    state.get_cpu_mem(u16::from(self.s) + 0x100)
+  fn pull_stack(state: &mut Machine) -> u8 {
+    state.cpu.s += 1;
+    state.get_cpu_mem(u16::from(state.cpu.s) + 0x100)
   }
 
-  pub fn reset(mut self, state: &mut Machine) -> Self {
+  pub fn reset(state: &mut Machine) {
     let low = state.get_cpu_mem(0xfffc);
     let high = state.get_cpu_mem(0xfffd);
     let reset_vector = (u16::from(high) << 8) + u16::from(low);
 
-    self.set_pc(&Operand::Absolute(reset_vector), state);
+    CPU::set_pc(&Operand::Absolute(reset_vector), state);
 
-    self.a = 0;
-    self.x = 0;
-    self.y = 0;
-    self.s = 0xfd;
-    self.set_status_register(0);
-    self.unused_flag = true;
+    state.cpu.a = 0;
+    state.cpu.x = 0;
+    state.cpu.y = 0;
+    state.cpu.s = 0xfd;
+    state.cpu.set_status_register(0);
+    state.cpu.unused_flag = true;
 
-    self.wait_cycles = 7;
-
-    self
+    state.cpu.wait_cycles = 7;
   }
 
-  pub fn tick(mut self, state: &mut Machine) -> (Self, Option<ExecutedInstruction>) {
-    let prev_state = state.clone();
+  pub fn tick(state: &mut Machine) -> Option<ExecutedInstruction> {
+    let prev_ppu_cycle = state.ppu.cycle;
+    let prev_ppu_scanline = state.ppu.scanline;
+    let prev_cycle_count = state.cycle_count;
+    let prev_cpu = state.cpu.clone();
 
-    if self.nmi_set {
-      self.push_stack(u8::try_from((self.pc & 0xff00) >> 8).unwrap(), state);
-      self.push_stack(u8::try_from(self.pc & 0xff).unwrap(), state);
-      self.break_flag = false;
-      self.interrupt_flag = true;
-      self.unused_flag = true;
-      self.push_stack(self.get_status_register(), state);
+    if state.cpu.nmi_set {
+      CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
+      CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
+      state.cpu.break_flag = false;
+      state.cpu.interrupt_flag = true;
+      state.cpu.unused_flag = true;
+      CPU::push_stack(state.cpu.get_status_register(), state);
 
       let low = state.get_cpu_mem(0xfffa);
       let high = state.get_cpu_mem(0xfffb);
       let nmi_vector = (u16::from(high) << 8) + u16::from(low);
 
-      self.set_pc(&Operand::Absolute(nmi_vector), state);
-      self.nmi_set = false;
+      CPU::set_pc(&Operand::Absolute(nmi_vector), state);
+      state.cpu.nmi_set = false;
 
-      self.wait_cycles = 6;
-      return (self, None);
+      state.cpu.wait_cycles = 6;
+      return None;
     }
 
-    if self.wait_cycles > 0 {
-      self.wait_cycles -= 1;
-      return (self, None);
+    if state.cpu.wait_cycles > 0 {
+      state.cpu.wait_cycles -= 1;
+      return None;
     }
 
-    if self.irq_set && !self.interrupt_flag {
-      self.push_stack(u8::try_from((self.pc & 0xff00) >> 8).unwrap(), state);
-      self.push_stack(u8::try_from(self.pc & 0xff).unwrap(), state);
-      self.push_stack(self.get_status_register(), state);
-      self.break_flag = false;
-      self.interrupt_flag = true;
-      self.unused_flag = true;
+    if state.cpu.irq_set && !state.cpu.interrupt_flag {
+      CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
+      CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
+      CPU::push_stack(state.cpu.get_status_register(), state);
+      state.cpu.break_flag = false;
+      state.cpu.interrupt_flag = true;
+      state.cpu.unused_flag = true;
 
       let low = state.get_cpu_mem(0xfffe);
       let high = state.get_cpu_mem(0xffff);
       let irq_vector = (u16::from(high) << 8) + u16::from(low);
 
-      self.set_pc(&Operand::Absolute(irq_vector), state);
+      CPU::set_pc(&Operand::Absolute(irq_vector), state);
 
-      self.wait_cycles = 6;
-      return (self, None);
+      state.cpu.wait_cycles = 6;
+      return None;
     }
 
-    self.unused_flag = true;
+    state.cpu.unused_flag = true;
 
-    let (instruction, opcode) = self.load_instruction(state);
-    self.wait_cycles = instruction.base_cycles() - 1;
-    self.execute_instruction(&instruction, state, true);
+    let (instruction, opcode) = Instruction::load_instruction(state);
+    state.cpu.wait_cycles = instruction.base_cycles() - 1;
+    let disassembled_instruction = instruction.disassemble(&state);
+    CPU::execute_instruction(&instruction, state, true);
 
-    (
-      self,
-      Some(ExecutedInstruction {
-        instruction,
-        opcode,
-        prev_state: Box::new(prev_state),
-      }),
-    )
+    Some(ExecutedInstruction {
+      instruction,
+      opcode,
+      cycle: prev_ppu_cycle,
+      scanline: prev_ppu_scanline,
+      cycle_count: prev_cycle_count,
+      disassembled_instruction,
+      prev_cpu,
+    })
   }
 
   fn execute_instruction(
-    &mut self,
     instruction: &Instruction,
     state: &mut Machine,
     add_page_boundary_cross_cycles: bool,
   ) {
     match &instruction {
       Instruction::ADC(op) => {
-        let (value, page_boundary_crossed) = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
 
-        let result = self.a as u16 + value as u16 + if self.carry_flag { 1 } else { 0 };
-        self.overflow_flag = (!(self.a ^ value) & (self.a ^ ((result & 0xff) as u8))) & 0x80 > 0;
-        self.carry_flag = result > 255;
-        self.a = u8::try_from(result & 0xff).unwrap();
-        self.zero_flag = self.a == 0;
-        self.negative_flag = self.a & 0b10000000 > 0;
+        let result = state.cpu.a as u16 + value as u16 + if state.cpu.carry_flag { 1 } else { 0 };
+        state.cpu.overflow_flag =
+          (!(state.cpu.a ^ value) & (state.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0;
+        state.cpu.carry_flag = result > 255;
+        state.cpu.a = u8::try_from(result & 0xff).unwrap();
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = state.cpu.a & 0b10000000 > 0;
       }
 
       Instruction::AND(op) => {
-        let (value, page_boundary_crossed) = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
-        self.a &= value;
-        self.zero_flag = self.a == 0;
-        self.negative_flag = (self.a & (1 << 7)) > 0;
+        state.cpu.a &= value;
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = (state.cpu.a & (1 << 7)) > 0;
       }
 
       Instruction::ASL(op) => {
-        let (value, _) = op.eval(self, state);
+        let (value, _) = op.eval(state);
         let result = value << 1;
-        self.set_operand(&op, result, state);
-        self.carry_flag = value & 0b10000000 > 0;
-        self.negative_flag = result & 0b10000000 > 0;
-        self.zero_flag = result == 0;
+        CPU::set_operand(&op, result, state);
+        state.cpu.carry_flag = value & 0b10000000 > 0;
+        state.cpu.negative_flag = result & 0b10000000 > 0;
+        state.cpu.zero_flag = result == 0;
       }
 
       Instruction::BCC(addr) => {
-        if !self.carry_flag {
-          self.wait_cycles += 1;
-          if self.set_pc(&addr, state) {
-            self.wait_cycles += 1;
+        if !state.cpu.carry_flag {
+          state.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, state) {
+            state.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BCS(addr) => {
-        if self.carry_flag {
-          self.wait_cycles += 1;
-          if self.set_pc(&addr, state) {
-            self.wait_cycles += 1;
+        if state.cpu.carry_flag {
+          state.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, state) {
+            state.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BEQ(addr) => {
-        if self.zero_flag {
-          self.wait_cycles += 1;
-          if self.set_pc(&addr, state) {
-            self.wait_cycles += 1;
+        if state.cpu.zero_flag {
+          state.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, state) {
+            state.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BIT(addr) => {
-        let (value, _) = addr.eval(self, state);
-        self.zero_flag = (value & self.a) == 0;
-        self.overflow_flag = (value & (1 << 6)) > 0;
-        self.negative_flag = (value & (1 << 7)) > 0;
+        let (value, _) = addr.eval(state);
+        state.cpu.zero_flag = (value & state.cpu.a) == 0;
+        state.cpu.overflow_flag = (value & (1 << 6)) > 0;
+        state.cpu.negative_flag = (value & (1 << 7)) > 0;
       }
 
       Instruction::BMI(addr) => {
-        if self.negative_flag {
-          self.wait_cycles += 1;
-          if self.set_pc(&addr, state) {
-            self.wait_cycles += 1;
+        if state.cpu.negative_flag {
+          state.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, state) {
+            state.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BNE(addr) => {
-        if !self.zero_flag {
-          self.wait_cycles += 1;
-          if self.set_pc(&addr, state) {
-            self.wait_cycles += 1;
+        if !state.cpu.zero_flag {
+          state.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, state) {
+            state.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BPL(addr) => {
-        if !self.negative_flag {
-          self.wait_cycles += 1;
-          if self.set_pc(&addr, state) {
-            self.wait_cycles += 1;
+        if !state.cpu.negative_flag {
+          state.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, state) {
+            state.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BRK => {
-        self.push_stack(u8::try_from((self.pc & 0xff00) >> 8).unwrap(), state);
-        self.push_stack(u8::try_from(self.pc & 0xff).unwrap(), state);
-        self.break_flag = true;
-        self.push_stack(self.get_status_register(), state);
+        CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
+        CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
+        state.cpu.break_flag = true;
+        CPU::push_stack(state.cpu.get_status_register(), state);
 
         let low = state.get_cpu_mem(0xfffe);
         let high = state.get_cpu_mem(0xffff);
         let irq_vector = (u16::from(high) << 8) + u16::from(low);
 
-        self.set_pc(&Operand::Absolute(irq_vector), state);
+        CPU::set_pc(&Operand::Absolute(irq_vector), state);
 
-        self.wait_cycles = 6;
+        state.cpu.wait_cycles = 6;
       }
 
       Instruction::BVC(addr) => {
-        if !self.overflow_flag {
-          self.wait_cycles += 1;
-          if self.set_pc(&addr, state) {
-            self.wait_cycles += 1;
+        if !state.cpu.overflow_flag {
+          state.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, state) {
+            state.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BVS(addr) => {
-        if self.overflow_flag {
-          self.wait_cycles += 1;
-          if self.set_pc(&addr, state) {
-            self.wait_cycles += 1;
+        if state.cpu.overflow_flag {
+          state.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, state) {
+            state.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::CLC => {
-        self.carry_flag = false;
+        state.cpu.carry_flag = false;
       }
 
       Instruction::CLD => {
-        self.decimal_flag = false;
+        state.cpu.decimal_flag = false;
       }
 
       Instruction::CLI => {
-        self.interrupt_flag = false;
+        state.cpu.interrupt_flag = false;
       }
 
       Instruction::CLV => {
-        self.overflow_flag = false;
+        state.cpu.overflow_flag = false;
       }
 
       Instruction::CMP(ref op) => {
-        let (value, page_boundary_crossed) = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
-        self.carry_flag = self.a >= value;
-        self.zero_flag = self.a == value;
-        self.negative_flag = (self.a.wrapping_sub(value) & 0b10000000) > 0;
+        state.cpu.carry_flag = state.cpu.a >= value;
+        state.cpu.zero_flag = state.cpu.a == value;
+        state.cpu.negative_flag = (state.cpu.a.wrapping_sub(value) & 0b10000000) > 0;
       }
 
       Instruction::CPX(op) => {
-        let (value, _) = op.eval(self, state);
-        let x = self.x;
-        self.carry_flag = x >= value;
-        self.zero_flag = x == value;
-        self.negative_flag = (x.wrapping_sub(value) & 0b10000000) > 0;
+        let (value, _) = op.eval(state);
+        let x = state.cpu.x;
+        state.cpu.carry_flag = x >= value;
+        state.cpu.zero_flag = x == value;
+        state.cpu.negative_flag = (x.wrapping_sub(value) & 0b10000000) > 0;
       }
 
       Instruction::CPY(op) => {
-        let (value, _) = op.eval(self, state);
-        let y = self.y;
-        self.carry_flag = y >= value;
-        self.zero_flag = y == value;
-        self.negative_flag = (y.wrapping_sub(value) & 0b10000000) > 0;
+        let (value, _) = op.eval(state);
+        let y = state.cpu.y;
+        state.cpu.carry_flag = y >= value;
+        state.cpu.zero_flag = y == value;
+        state.cpu.negative_flag = (y.wrapping_sub(value) & 0b10000000) > 0;
       }
 
       Instruction::DCP(op) => {
-        self.execute_instruction(&Instruction::DEC(op.clone()), state, false);
-        self.execute_instruction(&Instruction::CMP(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::DEC(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::CMP(op.clone()), state, false);
       }
 
       Instruction::DEC(op) => {
-        let value = op.eval(self, state).0.wrapping_sub(1);
-        self.set_operand(&op, value, state);
-        self.zero_flag = value == 0;
-        self.negative_flag = (value & 0b10000000) > 0;
+        let value = op.eval(state).0.wrapping_sub(1);
+        CPU::set_operand(&op, value, state);
+        state.cpu.zero_flag = value == 0;
+        state.cpu.negative_flag = (value & 0b10000000) > 0;
       }
 
       Instruction::DEX => {
-        self.x = self.x.wrapping_sub(1);
+        state.cpu.x = state.cpu.x.wrapping_sub(1);
 
-        let x = self.x;
-        self.zero_flag = x == 0;
-        self.negative_flag = (x & 0b10000000) > 0;
+        let x = state.cpu.x;
+        state.cpu.zero_flag = x == 0;
+        state.cpu.negative_flag = (x & 0b10000000) > 0;
       }
 
       Instruction::DEY => {
-        self.y = self.y.wrapping_sub(1);
+        state.cpu.y = state.cpu.y.wrapping_sub(1);
 
-        let y = self.y;
-        self.zero_flag = y == 0;
-        self.negative_flag = (y & 0b10000000) > 0;
+        let y = state.cpu.y;
+        state.cpu.zero_flag = y == 0;
+        state.cpu.negative_flag = (y & 0b10000000) > 0;
       }
 
       Instruction::EOR(op) => {
-        let (value, page_boundary_crossed) = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
 
-        self.a ^= value;
-        self.zero_flag = self.a == 0;
-        self.negative_flag = self.a & 0b10000000 > 0;
+        state.cpu.a ^= value;
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = state.cpu.a & 0b10000000 > 0;
       }
 
       Instruction::INC(op) => {
-        let value = op.eval(self, state).0.wrapping_add(1);
-        self.set_operand(&op, value, state);
-        self.zero_flag = value == 0;
-        self.negative_flag = (value & 0b10000000) > 0;
+        let value = op.eval(state).0.wrapping_add(1);
+        CPU::set_operand(&op, value, state);
+        state.cpu.zero_flag = value == 0;
+        state.cpu.negative_flag = (value & 0b10000000) > 0;
       }
 
       Instruction::INX => {
-        self.x = self.x.wrapping_add(1);
+        state.cpu.x = state.cpu.x.wrapping_add(1);
 
-        let x = self.x;
-        self.zero_flag = x == 0;
-        self.negative_flag = (x & 0b10000000) > 0;
+        let x = state.cpu.x;
+        state.cpu.zero_flag = x == 0;
+        state.cpu.negative_flag = (x & 0b10000000) > 0;
       }
 
       Instruction::INY => {
-        self.y = self.y.wrapping_add(1);
-        self.zero_flag = self.y == 0;
-        self.negative_flag = (self.y & 0b10000000) > 0;
+        state.cpu.y = state.cpu.y.wrapping_add(1);
+        state.cpu.zero_flag = state.cpu.y == 0;
+        state.cpu.negative_flag = (state.cpu.y & 0b10000000) > 0;
       }
 
       Instruction::ISB(op) => {
-        self.execute_instruction(&Instruction::INC(op.clone()), state, false);
-        self.execute_instruction(&Instruction::SBC(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::INC(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::SBC(op.clone()), state, false);
       }
 
       Instruction::JMP(addr) => {
-        self.set_pc(&addr, state);
+        CPU::set_pc(&addr, state);
       }
 
       Instruction::JSR(addr) => {
-        let return_point = self.pc - 1;
+        let return_point = state.cpu.pc - 1;
         let low: u8 = (return_point & 0xff).try_into().unwrap();
         let high: u8 = (return_point >> 8).try_into().unwrap();
-        self.push_stack(high, state);
-        self.push_stack(low, state);
-        self.set_pc(&addr, state);
+        CPU::push_stack(high, state);
+        CPU::push_stack(low, state);
+        CPU::set_pc(&addr, state);
       }
 
       Instruction::LAX(addr) => {
-        self.execute_instruction(&Instruction::LDA(addr.clone()), state, true);
-        self.execute_instruction(&Instruction::TAX, state, false);
+        CPU::execute_instruction(&Instruction::LDA(addr.clone()), state, true);
+        CPU::execute_instruction(&Instruction::TAX, state, false);
       }
 
       Instruction::LDA(ref addr) => {
-        let (value, page_boundary_crossed) = addr.eval(self, state);
+        let (value, page_boundary_crossed) = addr.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
-        self.a = value;
-        self.zero_flag = self.a == 0;
-        self.negative_flag = (self.a & 0b10000000) > 0;
+        state.cpu.a = value;
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = (state.cpu.a & 0b10000000) > 0;
       }
 
       Instruction::LDX(addr) => {
-        let (value, page_boundary_crossed) = addr.eval(self, state);
+        let (value, page_boundary_crossed) = addr.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
-        self.x = value;
-        self.zero_flag = self.x == 0;
-        self.negative_flag = (self.x & 0b10000000) > 0;
+        state.cpu.x = value;
+        state.cpu.zero_flag = state.cpu.x == 0;
+        state.cpu.negative_flag = (state.cpu.x & 0b10000000) > 0;
       }
 
       Instruction::LDY(addr) => {
-        let (value, page_boundary_crossed) = addr.eval(self, state);
+        let (value, page_boundary_crossed) = addr.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
-        self.y = value;
-        self.zero_flag = self.y == 0;
-        self.negative_flag = (self.y & 0b10000000) > 0;
+        state.cpu.y = value;
+        state.cpu.zero_flag = state.cpu.y == 0;
+        state.cpu.negative_flag = (state.cpu.y & 0b10000000) > 0;
       }
 
       Instruction::LSR(op) => {
-        let (value, _) = op.eval(self, state);
+        let (value, _) = op.eval(state);
         let result = value >> 1;
-        self.set_operand(&op, result, state);
-        self.carry_flag = value & 0b1 == 1;
-        self.zero_flag = result == 0;
-        self.negative_flag = false; // always false because we always put a 0 into bit 7
+        CPU::set_operand(&op, result, state);
+        state.cpu.carry_flag = value & 0b1 == 1;
+        state.cpu.zero_flag = result == 0;
+        state.cpu.negative_flag = false; // always false because we always put a 0 into bit 7
       }
 
       Instruction::NOP => {}
 
       Instruction::ORA(op) => {
-        let (value, page_boundary_crossed) = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
-        self.a = self.a | value;
-        self.zero_flag = self.a == 0;
-        self.negative_flag = (self.a & (1 << 7)) > 0;
+        state.cpu.a = state.cpu.a | value;
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = (state.cpu.a & (1 << 7)) > 0;
       }
 
       Instruction::PHA => {
-        self.push_stack(self.a, state);
+        CPU::push_stack(state.cpu.a, state);
       }
 
       Instruction::PHP => {
-        let prev_break_flag = self.break_flag;
-        self.break_flag = true;
-        self.push_stack(self.get_status_register(), state);
-        self.break_flag = prev_break_flag;
+        let prev_break_flag = state.cpu.break_flag;
+        state.cpu.break_flag = true;
+        CPU::push_stack(state.cpu.get_status_register(), state);
+        state.cpu.break_flag = prev_break_flag;
       }
 
       Instruction::PLA => {
-        self.a = self.pull_stack(state);
-        self.zero_flag = self.a == 0;
-        self.negative_flag = (self.a & 0b10000000) > 0;
+        state.cpu.a = CPU::pull_stack(state);
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = (state.cpu.a & 0b10000000) > 0;
       }
 
       Instruction::PLP => {
-        let prev_break_flag = self.break_flag;
-        let value = self.pull_stack(state);
-        self.set_status_register(value);
-        self.break_flag = prev_break_flag;
-        self.unused_flag = true;
+        let prev_break_flag = state.cpu.break_flag;
+        let value = CPU::pull_stack(state);
+        state.cpu.set_status_register(value);
+        state.cpu.break_flag = prev_break_flag;
+        state.cpu.unused_flag = true;
       }
 
       Instruction::RLA(op) => {
-        self.execute_instruction(&Instruction::ROL(op.clone()), state, false);
-        self.execute_instruction(&Instruction::AND(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::ROL(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::AND(op.clone()), state, false);
       }
 
       Instruction::RRA(op) => {
-        self.execute_instruction(&Instruction::ROR(op.clone()), state, false);
-        self.execute_instruction(&Instruction::ADC(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::ROR(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::ADC(op.clone()), state, false);
       }
 
       Instruction::ROL(op) => {
-        let (value, _) = op.eval(self, state);
-        let result = value << 1 | (if self.carry_flag { 1 } else { 0 });
-        self.set_operand(&op, result, state);
-        self.carry_flag = value & 0b10000000 > 0;
-        self.negative_flag = result & 0b10000000 > 0;
-        self.zero_flag = self.a == 0;
+        let (value, _) = op.eval(state);
+        let result = value << 1 | (if state.cpu.carry_flag { 1 } else { 0 });
+        CPU::set_operand(&op, result, state);
+        state.cpu.carry_flag = value & 0b10000000 > 0;
+        state.cpu.negative_flag = result & 0b10000000 > 0;
+        state.cpu.zero_flag = state.cpu.a == 0;
       }
 
       Instruction::ROR(op) => {
-        let (value, _) = op.eval(self, state);
-        let result = value >> 1 | (if self.carry_flag { 0b10000000 } else { 0 });
-        self.set_operand(&op, result, state);
-        self.carry_flag = value & 0b1 > 0;
-        self.negative_flag = result & 0b10000000 > 0;
-        self.zero_flag = self.a == 0;
+        let (value, _) = op.eval(state);
+        let result = value >> 1 | (if state.cpu.carry_flag { 0b10000000 } else { 0 });
+        CPU::set_operand(&op, result, state);
+        state.cpu.carry_flag = value & 0b1 > 0;
+        state.cpu.negative_flag = result & 0b10000000 > 0;
+        state.cpu.zero_flag = state.cpu.a == 0;
       }
 
       Instruction::RTI => {
-        let status = self.pull_stack(state);
-        self.set_status_register(status);
-        self.unused_flag = true;
-        let low = self.pull_stack(state);
-        let high = self.pull_stack(state);
-        self.set_pc(
+        let status = CPU::pull_stack(state);
+        state.cpu.set_status_register(status);
+        state.cpu.unused_flag = true;
+        let low = CPU::pull_stack(state);
+        let high = CPU::pull_stack(state);
+        CPU::set_pc(
           &Operand::Absolute((u16::from(high) << 8) + u16::from(low)),
           state,
         );
       }
 
       Instruction::RTS => {
-        let low = self.pull_stack(state);
-        let high = self.pull_stack(state);
-        self.set_pc(
+        let low = CPU::pull_stack(state);
+        let high = CPU::pull_stack(state);
+        CPU::set_pc(
           &Operand::Absolute((u16::from(high) << 8) + u16::from(low) + 1),
           state,
         );
       }
 
       Instruction::SAX(addr) => {
-        self.set_operand(&addr, self.a & self.x, state);
+        CPU::set_operand(&addr, state.cpu.a & state.cpu.x, state);
       }
 
       Instruction::SBC(op) => {
-        let (value, page_boundary_crossed) = op.eval(self, state);
+        let (value, page_boundary_crossed) = op.eval(state);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          self.wait_cycles += 1;
+          state.cpu.wait_cycles += 1;
         }
 
         // invert the bottom 8 bits and then do addition as in ADC
         let value = value ^ 0xff;
 
-        let result = self.a as u16 + value as u16 + if self.carry_flag { 1 } else { 0 };
-        self.overflow_flag = (!(self.a ^ value) & (self.a ^ ((result & 0xff) as u8))) & 0x80 > 0;
-        self.carry_flag = result > 255;
-        self.a = u8::try_from(result & 0xff).unwrap();
-        self.zero_flag = self.a == 0;
-        self.negative_flag = self.a & 0b10000000 > 0;
+        let result = state.cpu.a as u16 + value as u16 + if state.cpu.carry_flag { 1 } else { 0 };
+        state.cpu.overflow_flag =
+          (!(state.cpu.a ^ value) & (state.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0;
+        state.cpu.carry_flag = result > 255;
+        state.cpu.a = u8::try_from(result & 0xff).unwrap();
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = state.cpu.a & 0b10000000 > 0;
       }
 
       Instruction::SEC => {
-        self.carry_flag = true;
+        state.cpu.carry_flag = true;
       }
 
       Instruction::SED => {
-        self.decimal_flag = true;
+        state.cpu.decimal_flag = true;
       }
 
       Instruction::SEI => {
-        self.interrupt_flag = true;
+        state.cpu.interrupt_flag = true;
       }
 
       Instruction::SLO(op) => {
-        self.execute_instruction(&Instruction::ASL(op.clone()), state, false);
-        self.execute_instruction(&Instruction::ORA(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::ASL(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::ORA(op.clone()), state, false);
       }
 
       Instruction::SRE(op) => {
-        self.execute_instruction(&Instruction::LSR(op.clone()), state, false);
-        self.execute_instruction(&Instruction::EOR(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::LSR(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::EOR(op.clone()), state, false);
       }
 
       Instruction::STA(addr) => {
-        self.set_operand(&addr, self.a, state);
+        CPU::set_operand(&addr, state.cpu.a, state);
       }
 
       Instruction::STX(addr) => {
-        self.set_operand(&addr, self.x, state);
+        CPU::set_operand(&addr, state.cpu.x, state);
       }
 
       Instruction::STY(addr) => {
-        self.set_operand(&addr, self.y, state);
+        CPU::set_operand(&addr, state.cpu.y, state);
       }
 
       Instruction::TAX => {
-        self.x = self.a;
-        self.zero_flag = self.x == 0;
-        self.negative_flag = (self.x & (1 << 7)) > 0;
+        state.cpu.x = state.cpu.a;
+        state.cpu.zero_flag = state.cpu.x == 0;
+        state.cpu.negative_flag = (state.cpu.x & (1 << 7)) > 0;
       }
 
       Instruction::TAY => {
-        self.y = self.a;
-        self.zero_flag = self.y == 0;
-        self.negative_flag = (self.y & (1 << 7)) > 0;
+        state.cpu.y = state.cpu.a;
+        state.cpu.zero_flag = state.cpu.y == 0;
+        state.cpu.negative_flag = (state.cpu.y & (1 << 7)) > 0;
       }
 
       Instruction::TSX => {
-        self.x = self.s;
-        self.zero_flag = self.x == 0;
-        self.negative_flag = (self.x & (1 << 7)) > 0;
+        state.cpu.x = state.cpu.s;
+        state.cpu.zero_flag = state.cpu.x == 0;
+        state.cpu.negative_flag = (state.cpu.x & (1 << 7)) > 0;
       }
 
       Instruction::TXA => {
-        self.a = self.x;
-        self.zero_flag = self.a == 0;
-        self.negative_flag = (self.a & (1 << 7)) > 0;
+        state.cpu.a = state.cpu.x;
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = (state.cpu.a & (1 << 7)) > 0;
       }
 
       Instruction::TXS => {
-        self.s = self.x;
+        state.cpu.s = state.cpu.x;
       }
 
       Instruction::TYA => {
-        self.a = self.y;
-        self.zero_flag = self.a == 0;
-        self.negative_flag = (self.a & (1 << 7)) > 0;
+        state.cpu.a = state.cpu.y;
+        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.negative_flag = (state.cpu.a & (1 << 7)) > 0;
       }
 
       Instruction::Illegal(instruction, op) => {
         match **instruction {
           Instruction::NOP => match op {
             Some(op) => {
-              let (_addr, page_boundary_crossed) = op.eval(self, state);
+              let (_addr, page_boundary_crossed) = op.eval(state);
               if page_boundary_crossed && add_page_boundary_cross_cycles {
-                self.wait_cycles += 1;
+                state.cpu.wait_cycles += 1;
               }
             }
             _ => {}
           },
           _ => {}
         }
-        self.execute_instruction(instruction, state, false)
+        CPU::execute_instruction(instruction, state, false)
       }
     }
   }

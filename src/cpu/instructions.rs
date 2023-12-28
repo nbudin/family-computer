@@ -488,7 +488,7 @@ impl Instruction {
     }
   }
 
-  pub fn disassemble(&self, cpu: &CPU, machine_state: &mut Machine) -> String {
+  pub fn disassemble(&self, machine_state: &Machine) -> String {
     let instruction_name: &'static str = match self {
       Instruction::Illegal(instruction, _op) => <&'static str>::from(*instruction.clone()),
       _ => self.into(),
@@ -507,489 +507,484 @@ impl Instruction {
       Some(op) => format!(
         "{} {}",
         instruction_name,
-        op.disassemble(cpu, machine_state, eval)
+        op.disassemble(machine_state, eval)
       ),
       None => instruction_name.to_owned(),
     }
   }
-}
 
-pub trait LoadInstruction {
-  fn get_pc(&self) -> u16;
-  fn inc_pc(&mut self);
-
-  fn load_byte(&mut self, state: &mut Machine) -> u8 {
-    let byte = state.get_cpu_mem(self.get_pc());
-    self.inc_pc();
+  fn load_byte(state: &mut Machine) -> u8 {
+    let byte = state.get_cpu_mem(state.cpu.pc);
+    CPU::set_pc(&Operand::Absolute(state.cpu.pc.wrapping_add(1)), state);
     byte
   }
 
-  fn load_addr(&mut self, state: &mut Machine) -> u16 {
-    let low = self.load_byte(state);
-    let high = self.load_byte(state);
+  fn load_addr(state: &mut Machine) -> u16 {
+    let low = Instruction::load_byte(state);
+    let high = Instruction::load_byte(state);
 
     (u16::from(high) << 8) + u16::from(low)
   }
 
-  fn load_offset(&mut self, state: &mut Machine) -> i8 {
-    let byte = self.load_byte(state);
+  fn load_offset(state: &mut Machine) -> i8 {
+    let byte = Instruction::load_byte(state);
     byte as i8
   }
 
-  fn load_instruction(&mut self, state: &mut Machine) -> (Instruction, u8) {
-    let opcode = self.load_byte(state);
+  pub fn load_instruction(state: &mut Machine) -> (Instruction, u8) {
+    let opcode = Instruction::load_byte(state);
 
     let instruction = match opcode {
       0x00 => Instruction::BRK,
-      0x01 => Instruction::ORA(Operand::IndirectX(self.load_byte(state))),
+      0x01 => Instruction::ORA(Operand::IndirectX(Instruction::load_byte(state))),
       0x03 => {
-        let op = Operand::IndirectX(self.load_byte(state));
+        let op = Operand::IndirectX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SLO(op.clone())), Some(op))
       }
       0x04 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPage(self.load_byte(state))),
+        Some(Operand::ZeroPage(Instruction::load_byte(state))),
       ),
-      0x05 => Instruction::ORA(Operand::ZeroPage(self.load_byte(state))),
-      0x06 => Instruction::ASL(Operand::ZeroPage(self.load_byte(state))),
+      0x05 => Instruction::ORA(Operand::ZeroPage(Instruction::load_byte(state))),
+      0x06 => Instruction::ASL(Operand::ZeroPage(Instruction::load_byte(state))),
       0x07 => {
-        let op = Operand::ZeroPage(self.load_byte(state));
+        let op = Operand::ZeroPage(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SLO(op.clone())), Some(op))
       }
       0x08 => Instruction::PHP,
-      0x09 => Instruction::ORA(Operand::Immediate(self.load_byte(state))),
+      0x09 => Instruction::ORA(Operand::Immediate(Instruction::load_byte(state))),
       0x0a => Instruction::ASL(Operand::Accumulator),
       0x0c => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::Absolute(self.load_addr(state))),
+        Some(Operand::Absolute(Instruction::load_addr(state))),
       ),
-      0x0d => Instruction::ORA(Operand::Absolute(self.load_addr(state))),
-      0x0e => Instruction::ASL(Operand::Absolute(self.load_addr(state))),
+      0x0d => Instruction::ORA(Operand::Absolute(Instruction::load_addr(state))),
+      0x0e => Instruction::ASL(Operand::Absolute(Instruction::load_addr(state))),
       0x0f => {
-        let op = Operand::Absolute(self.load_addr(state));
+        let op = Operand::Absolute(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::SLO(op.clone())), Some(op))
       }
 
-      0x10 => Instruction::BPL(Operand::Relative(self.load_offset(state))),
-      0x11 => Instruction::ORA(Operand::IndirectY(self.load_byte(state))),
+      0x10 => Instruction::BPL(Operand::Relative(Instruction::load_offset(state))),
+      0x11 => Instruction::ORA(Operand::IndirectY(Instruction::load_byte(state))),
       0x13 => {
-        let op = Operand::IndirectY(self.load_byte(state));
+        let op = Operand::IndirectY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SLO(op.clone())), Some(op))
       }
       0x14 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPageX(self.load_byte(state))),
+        Some(Operand::ZeroPageX(Instruction::load_byte(state))),
       ),
-      0x15 => Instruction::ORA(Operand::ZeroPageX(self.load_byte(state))),
-      0x16 => Instruction::ASL(Operand::ZeroPageX(self.load_byte(state))),
+      0x15 => Instruction::ORA(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0x16 => Instruction::ASL(Operand::ZeroPageX(Instruction::load_byte(state))),
       0x17 => {
-        let op = Operand::ZeroPageX(self.load_byte(state));
+        let op = Operand::ZeroPageX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SLO(op.clone())), Some(op))
       }
       0x18 => Instruction::CLC,
-      0x19 => Instruction::ORA(Operand::AbsoluteY(self.load_addr(state))),
+      0x19 => Instruction::ORA(Operand::AbsoluteY(Instruction::load_addr(state))),
       0x1a => Instruction::Illegal(Box::new(Instruction::NOP), None),
       0x1b => {
-        let op = Operand::AbsoluteY(self.load_addr(state));
+        let op = Operand::AbsoluteY(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::SLO(op.clone())), Some(op))
       }
       0x1c => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::AbsoluteX(self.load_addr(state))),
+        Some(Operand::AbsoluteX(Instruction::load_addr(state))),
       ),
-      0x1d => Instruction::ORA(Operand::AbsoluteX(self.load_addr(state))),
-      0x1e => Instruction::ASL(Operand::AbsoluteX(self.load_addr(state))),
+      0x1d => Instruction::ORA(Operand::AbsoluteX(Instruction::load_addr(state))),
+      0x1e => Instruction::ASL(Operand::AbsoluteX(Instruction::load_addr(state))),
       0x1f => {
-        let op = Operand::AbsoluteX(self.load_addr(state));
+        let op = Operand::AbsoluteX(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::SLO(op.clone())), Some(op))
       }
 
-      0x20 => Instruction::JSR(Operand::Absolute(self.load_addr(state))),
-      0x21 => Instruction::AND(Operand::IndirectX(self.load_byte(state))),
+      0x20 => Instruction::JSR(Operand::Absolute(Instruction::load_addr(state))),
+      0x21 => Instruction::AND(Operand::IndirectX(Instruction::load_byte(state))),
       0x23 => {
-        let op = Operand::IndirectX(self.load_byte(state));
+        let op = Operand::IndirectX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::RLA(op.clone())), Some(op))
       }
-      0x24 => Instruction::BIT(Operand::ZeroPage(self.load_byte(state))),
-      0x25 => Instruction::AND(Operand::ZeroPage(self.load_byte(state))),
-      0x26 => Instruction::ROL(Operand::ZeroPage(self.load_byte(state))),
+      0x24 => Instruction::BIT(Operand::ZeroPage(Instruction::load_byte(state))),
+      0x25 => Instruction::AND(Operand::ZeroPage(Instruction::load_byte(state))),
+      0x26 => Instruction::ROL(Operand::ZeroPage(Instruction::load_byte(state))),
       0x27 => {
-        let op = Operand::ZeroPage(self.load_byte(state));
+        let op = Operand::ZeroPage(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::RLA(op.clone())), Some(op))
       }
       0x28 => Instruction::PLP,
-      0x29 => Instruction::AND(Operand::Immediate(self.load_byte(state))),
+      0x29 => Instruction::AND(Operand::Immediate(Instruction::load_byte(state))),
       0x2a => Instruction::ROL(Operand::Accumulator),
-      0x2c => Instruction::BIT(Operand::Absolute(self.load_addr(state))),
-      0x2d => Instruction::AND(Operand::Absolute(self.load_addr(state))),
-      0x2e => Instruction::ROL(Operand::Absolute(self.load_addr(state))),
+      0x2c => Instruction::BIT(Operand::Absolute(Instruction::load_addr(state))),
+      0x2d => Instruction::AND(Operand::Absolute(Instruction::load_addr(state))),
+      0x2e => Instruction::ROL(Operand::Absolute(Instruction::load_addr(state))),
       0x2f => {
-        let op = Operand::Absolute(self.load_addr(state));
+        let op = Operand::Absolute(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::RLA(op.clone())), Some(op))
       }
 
-      0x30 => Instruction::BMI(Operand::Relative(self.load_offset(state))),
-      0x31 => Instruction::AND(Operand::IndirectY(self.load_byte(state))),
+      0x30 => Instruction::BMI(Operand::Relative(Instruction::load_offset(state))),
+      0x31 => Instruction::AND(Operand::IndirectY(Instruction::load_byte(state))),
       0x33 => {
-        let op = Operand::IndirectY(self.load_byte(state));
+        let op = Operand::IndirectY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::RLA(op.clone())), Some(op))
       }
       0x34 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPageX(self.load_byte(state))),
+        Some(Operand::ZeroPageX(Instruction::load_byte(state))),
       ),
-      0x35 => Instruction::AND(Operand::ZeroPageX(self.load_byte(state))),
-      0x36 => Instruction::ROL(Operand::ZeroPageX(self.load_byte(state))),
+      0x35 => Instruction::AND(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0x36 => Instruction::ROL(Operand::ZeroPageX(Instruction::load_byte(state))),
       0x37 => {
-        let op = Operand::ZeroPageX(self.load_byte(state));
+        let op = Operand::ZeroPageX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::RLA(op.clone())), Some(op))
       }
       0x38 => Instruction::SEC,
-      0x39 => Instruction::AND(Operand::AbsoluteY(self.load_addr(state))),
+      0x39 => Instruction::AND(Operand::AbsoluteY(Instruction::load_addr(state))),
       0x3a => Instruction::Illegal(Box::new(Instruction::NOP), None),
       0x3b => {
-        let op = Operand::AbsoluteY(self.load_addr(state));
+        let op = Operand::AbsoluteY(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::RLA(op.clone())), Some(op))
       }
       0x3c => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::AbsoluteX(self.load_addr(state))),
+        Some(Operand::AbsoluteX(Instruction::load_addr(state))),
       ),
-      0x3d => Instruction::AND(Operand::AbsoluteX(self.load_addr(state))),
-      0x3e => Instruction::ROL(Operand::AbsoluteX(self.load_addr(state))),
+      0x3d => Instruction::AND(Operand::AbsoluteX(Instruction::load_addr(state))),
+      0x3e => Instruction::ROL(Operand::AbsoluteX(Instruction::load_addr(state))),
       0x3f => {
-        let op = Operand::AbsoluteX(self.load_addr(state));
+        let op = Operand::AbsoluteX(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::RLA(op.clone())), Some(op))
       }
 
       0x40 => Instruction::RTI,
-      0x41 => Instruction::EOR(Operand::IndirectX(self.load_byte(state))),
+      0x41 => Instruction::EOR(Operand::IndirectX(Instruction::load_byte(state))),
       0x43 => {
-        let op = Operand::IndirectX(self.load_byte(state));
+        let op = Operand::IndirectX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SRE(op.clone())), Some(op))
       }
       0x44 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPage(self.load_byte(state))),
+        Some(Operand::ZeroPage(Instruction::load_byte(state))),
       ),
-      0x45 => Instruction::EOR(Operand::ZeroPage(self.load_byte(state))),
-      0x46 => Instruction::LSR(Operand::ZeroPage(self.load_byte(state))),
+      0x45 => Instruction::EOR(Operand::ZeroPage(Instruction::load_byte(state))),
+      0x46 => Instruction::LSR(Operand::ZeroPage(Instruction::load_byte(state))),
       0x47 => {
-        let op = Operand::ZeroPage(self.load_byte(state));
+        let op = Operand::ZeroPage(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SRE(op.clone())), Some(op))
       }
       0x48 => Instruction::PHA,
-      0x49 => Instruction::EOR(Operand::Immediate(self.load_byte(state))),
+      0x49 => Instruction::EOR(Operand::Immediate(Instruction::load_byte(state))),
       0x4a => Instruction::LSR(Operand::Accumulator),
-      0x4c => Instruction::JMP(Operand::Absolute(self.load_addr(state))),
-      0x4d => Instruction::EOR(Operand::Absolute(self.load_addr(state))),
-      0x4e => Instruction::LSR(Operand::Absolute(self.load_addr(state))),
+      0x4c => Instruction::JMP(Operand::Absolute(Instruction::load_addr(state))),
+      0x4d => Instruction::EOR(Operand::Absolute(Instruction::load_addr(state))),
+      0x4e => Instruction::LSR(Operand::Absolute(Instruction::load_addr(state))),
       0x4f => {
-        let op = Operand::Absolute(self.load_addr(state));
+        let op = Operand::Absolute(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::SRE(op.clone())), Some(op))
       }
 
-      0x50 => Instruction::BVC(Operand::Relative(self.load_offset(state))),
-      0x51 => Instruction::EOR(Operand::IndirectY(self.load_byte(state))),
+      0x50 => Instruction::BVC(Operand::Relative(Instruction::load_offset(state))),
+      0x51 => Instruction::EOR(Operand::IndirectY(Instruction::load_byte(state))),
       0x53 => {
-        let op = Operand::IndirectY(self.load_byte(state));
+        let op = Operand::IndirectY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SRE(op.clone())), Some(op))
       }
       0x54 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPageX(self.load_byte(state))),
+        Some(Operand::ZeroPageX(Instruction::load_byte(state))),
       ),
-      0x55 => Instruction::EOR(Operand::ZeroPageX(self.load_byte(state))),
-      0x56 => Instruction::LSR(Operand::ZeroPageX(self.load_byte(state))),
+      0x55 => Instruction::EOR(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0x56 => Instruction::LSR(Operand::ZeroPageX(Instruction::load_byte(state))),
       0x57 => {
-        let op = Operand::ZeroPageX(self.load_byte(state));
+        let op = Operand::ZeroPageX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SRE(op.clone())), Some(op))
       }
       0x58 => Instruction::CLI,
-      0x59 => Instruction::EOR(Operand::AbsoluteY(self.load_addr(state))),
+      0x59 => Instruction::EOR(Operand::AbsoluteY(Instruction::load_addr(state))),
       0x5a => Instruction::Illegal(Box::new(Instruction::NOP), None),
       0x5b => {
-        let op = Operand::AbsoluteY(self.load_addr(state));
+        let op = Operand::AbsoluteY(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::SRE(op.clone())), Some(op))
       }
       0x5c => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::AbsoluteX(self.load_addr(state))),
+        Some(Operand::AbsoluteX(Instruction::load_addr(state))),
       ),
-      0x5d => Instruction::EOR(Operand::AbsoluteX(self.load_addr(state))),
-      0x5e => Instruction::LSR(Operand::AbsoluteX(self.load_addr(state))),
+      0x5d => Instruction::EOR(Operand::AbsoluteX(Instruction::load_addr(state))),
+      0x5e => Instruction::LSR(Operand::AbsoluteX(Instruction::load_addr(state))),
       0x5f => {
-        let op = Operand::AbsoluteX(self.load_addr(state));
+        let op = Operand::AbsoluteX(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::SRE(op.clone())), Some(op))
       }
 
       0x60 => Instruction::RTS,
-      0x61 => Instruction::ADC(Operand::IndirectX(self.load_byte(state))),
+      0x61 => Instruction::ADC(Operand::IndirectX(Instruction::load_byte(state))),
       0x63 => {
-        let op = Operand::IndirectX(self.load_byte(state));
+        let op = Operand::IndirectX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::RRA(op.clone())), Some(op))
       }
       0x64 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPage(self.load_byte(state))),
+        Some(Operand::ZeroPage(Instruction::load_byte(state))),
       ),
-      0x65 => Instruction::ADC(Operand::ZeroPage(self.load_byte(state))),
-      0x66 => Instruction::ROR(Operand::ZeroPage(self.load_byte(state))),
+      0x65 => Instruction::ADC(Operand::ZeroPage(Instruction::load_byte(state))),
+      0x66 => Instruction::ROR(Operand::ZeroPage(Instruction::load_byte(state))),
       0x67 => {
-        let op = Operand::ZeroPage(self.load_byte(state));
+        let op = Operand::ZeroPage(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::RRA(op.clone())), Some(op))
       }
       0x68 => Instruction::PLA,
-      0x69 => Instruction::ADC(Operand::Immediate(self.load_byte(state))),
+      0x69 => Instruction::ADC(Operand::Immediate(Instruction::load_byte(state))),
       0x6a => Instruction::ROR(Operand::Accumulator),
-      0x6c => Instruction::JMP(Operand::Indirect(self.load_addr(state))),
-      0x6d => Instruction::ADC(Operand::Absolute(self.load_addr(state))),
-      0x6e => Instruction::ROR(Operand::Absolute(self.load_addr(state))),
+      0x6c => Instruction::JMP(Operand::Indirect(Instruction::load_addr(state))),
+      0x6d => Instruction::ADC(Operand::Absolute(Instruction::load_addr(state))),
+      0x6e => Instruction::ROR(Operand::Absolute(Instruction::load_addr(state))),
       0x6f => {
-        let op = Operand::Absolute(self.load_addr(state));
+        let op = Operand::Absolute(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::RRA(op.clone())), Some(op))
       }
 
-      0x70 => Instruction::BVS(Operand::Relative(self.load_offset(state))),
-      0x71 => Instruction::ADC(Operand::IndirectY(self.load_byte(state))),
+      0x70 => Instruction::BVS(Operand::Relative(Instruction::load_offset(state))),
+      0x71 => Instruction::ADC(Operand::IndirectY(Instruction::load_byte(state))),
       0x73 => {
-        let op = Operand::IndirectY(self.load_byte(state));
+        let op = Operand::IndirectY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::RRA(op.clone())), Some(op))
       }
       0x74 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPageX(self.load_byte(state))),
+        Some(Operand::ZeroPageX(Instruction::load_byte(state))),
       ),
-      0x75 => Instruction::ADC(Operand::ZeroPageX(self.load_byte(state))),
-      0x76 => Instruction::ROR(Operand::ZeroPageX(self.load_byte(state))),
+      0x75 => Instruction::ADC(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0x76 => Instruction::ROR(Operand::ZeroPageX(Instruction::load_byte(state))),
       0x77 => {
-        let op = Operand::ZeroPageX(self.load_byte(state));
+        let op = Operand::ZeroPageX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::RRA(op.clone())), Some(op))
       }
       0x78 => Instruction::SEI,
-      0x79 => Instruction::ADC(Operand::AbsoluteY(self.load_addr(state))),
+      0x79 => Instruction::ADC(Operand::AbsoluteY(Instruction::load_addr(state))),
       0x7a => Instruction::Illegal(Box::new(Instruction::NOP), None),
       0x7b => {
-        let op = Operand::AbsoluteY(self.load_addr(state));
+        let op = Operand::AbsoluteY(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::RRA(op.clone())), Some(op))
       }
       0x7c => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::AbsoluteX(self.load_addr(state))),
+        Some(Operand::AbsoluteX(Instruction::load_addr(state))),
       ),
-      0x7d => Instruction::ADC(Operand::AbsoluteX(self.load_addr(state))),
-      0x7e => Instruction::ROR(Operand::AbsoluteX(self.load_addr(state))),
+      0x7d => Instruction::ADC(Operand::AbsoluteX(Instruction::load_addr(state))),
+      0x7e => Instruction::ROR(Operand::AbsoluteX(Instruction::load_addr(state))),
       0x7f => {
-        let op = Operand::AbsoluteX(self.load_addr(state));
+        let op = Operand::AbsoluteX(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::RRA(op.clone())), Some(op))
       }
 
       0x80 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::Immediate(self.load_byte(state))),
+        Some(Operand::Immediate(Instruction::load_byte(state))),
       ),
-      0x81 => Instruction::STA(Operand::IndirectX(self.load_byte(state))),
+      0x81 => Instruction::STA(Operand::IndirectX(Instruction::load_byte(state))),
       0x83 => {
-        let op = Operand::IndirectX(self.load_byte(state));
+        let op = Operand::IndirectX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SAX(op.clone())), Some(op))
       }
-      0x84 => Instruction::STY(Operand::ZeroPage(self.load_byte(state))),
-      0x85 => Instruction::STA(Operand::ZeroPage(self.load_byte(state))),
-      0x86 => Instruction::STX(Operand::ZeroPage(self.load_byte(state))),
+      0x84 => Instruction::STY(Operand::ZeroPage(Instruction::load_byte(state))),
+      0x85 => Instruction::STA(Operand::ZeroPage(Instruction::load_byte(state))),
+      0x86 => Instruction::STX(Operand::ZeroPage(Instruction::load_byte(state))),
       0x87 => {
-        let op = Operand::ZeroPage(self.load_byte(state));
+        let op = Operand::ZeroPage(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SAX(op.clone())), Some(op))
       }
       0x88 => Instruction::DEY,
       0x8a => Instruction::TXA,
-      0x8c => Instruction::STY(Operand::Absolute(self.load_addr(state))),
-      0x8d => Instruction::STA(Operand::Absolute(self.load_addr(state))),
-      0x8e => Instruction::STX(Operand::Absolute(self.load_addr(state))),
+      0x8c => Instruction::STY(Operand::Absolute(Instruction::load_addr(state))),
+      0x8d => Instruction::STA(Operand::Absolute(Instruction::load_addr(state))),
+      0x8e => Instruction::STX(Operand::Absolute(Instruction::load_addr(state))),
       0x8f => {
-        let op = Operand::Absolute(self.load_addr(state));
+        let op = Operand::Absolute(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::SAX(op.clone())), Some(op))
       }
 
-      0x90 => Instruction::BCC(Operand::Relative(self.load_offset(state))),
-      0x91 => Instruction::STA(Operand::IndirectY(self.load_byte(state))),
-      0x94 => Instruction::STY(Operand::ZeroPageX(self.load_byte(state))),
-      0x95 => Instruction::STA(Operand::ZeroPageX(self.load_byte(state))),
-      0x96 => Instruction::STX(Operand::ZeroPageY(self.load_byte(state))),
+      0x90 => Instruction::BCC(Operand::Relative(Instruction::load_offset(state))),
+      0x91 => Instruction::STA(Operand::IndirectY(Instruction::load_byte(state))),
+      0x94 => Instruction::STY(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0x95 => Instruction::STA(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0x96 => Instruction::STX(Operand::ZeroPageY(Instruction::load_byte(state))),
       0x97 => {
-        let op = Operand::ZeroPageY(self.load_byte(state));
+        let op = Operand::ZeroPageY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SAX(op.clone())), Some(op))
       }
       0x98 => Instruction::TYA,
-      0x99 => Instruction::STA(Operand::AbsoluteY(self.load_addr(state))),
+      0x99 => Instruction::STA(Operand::AbsoluteY(Instruction::load_addr(state))),
       0x9a => Instruction::TXS,
-      0x9d => Instruction::STA(Operand::AbsoluteX(self.load_addr(state))),
+      0x9d => Instruction::STA(Operand::AbsoluteX(Instruction::load_addr(state))),
 
-      0xa0 => Instruction::LDY(Operand::Immediate(self.load_byte(state))),
-      0xa1 => Instruction::LDA(Operand::IndirectX(self.load_byte(state))),
-      0xa2 => Instruction::LDX(Operand::Immediate(self.load_byte(state))),
+      0xa0 => Instruction::LDY(Operand::Immediate(Instruction::load_byte(state))),
+      0xa1 => Instruction::LDA(Operand::IndirectX(Instruction::load_byte(state))),
+      0xa2 => Instruction::LDX(Operand::Immediate(Instruction::load_byte(state))),
       0xa3 => {
-        let op = Operand::IndirectX(self.load_byte(state));
+        let op = Operand::IndirectX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::LAX(op.clone())), Some(op))
       }
-      0xa4 => Instruction::LDY(Operand::ZeroPage(self.load_byte(state))),
-      0xa5 => Instruction::LDA(Operand::ZeroPage(self.load_byte(state))),
-      0xa6 => Instruction::LDX(Operand::ZeroPage(self.load_byte(state))),
+      0xa4 => Instruction::LDY(Operand::ZeroPage(Instruction::load_byte(state))),
+      0xa5 => Instruction::LDA(Operand::ZeroPage(Instruction::load_byte(state))),
+      0xa6 => Instruction::LDX(Operand::ZeroPage(Instruction::load_byte(state))),
       0xa7 => {
-        let op = Operand::ZeroPage(self.load_byte(state));
+        let op = Operand::ZeroPage(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::LAX(op.clone())), Some(op))
       }
       0xa8 => Instruction::TAY,
-      0xa9 => Instruction::LDA(Operand::Immediate(self.load_byte(state))),
+      0xa9 => Instruction::LDA(Operand::Immediate(Instruction::load_byte(state))),
       0xaa => Instruction::TAX,
-      0xac => Instruction::LDY(Operand::Absolute(self.load_addr(state))),
-      0xad => Instruction::LDA(Operand::Absolute(self.load_addr(state))),
-      0xae => Instruction::LDX(Operand::Absolute(self.load_addr(state))),
+      0xac => Instruction::LDY(Operand::Absolute(Instruction::load_addr(state))),
+      0xad => Instruction::LDA(Operand::Absolute(Instruction::load_addr(state))),
+      0xae => Instruction::LDX(Operand::Absolute(Instruction::load_addr(state))),
       0xaf => {
-        let op = Operand::Absolute(self.load_addr(state));
+        let op = Operand::Absolute(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::LAX(op.clone())), Some(op))
       }
 
-      0xb0 => Instruction::BCS(Operand::Relative(self.load_offset(state))),
-      0xb1 => Instruction::LDA(Operand::IndirectY(self.load_byte(state))),
+      0xb0 => Instruction::BCS(Operand::Relative(Instruction::load_offset(state))),
+      0xb1 => Instruction::LDA(Operand::IndirectY(Instruction::load_byte(state))),
       0xb3 => {
-        let op = Operand::IndirectY(self.load_byte(state));
+        let op = Operand::IndirectY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::LAX(op.clone())), Some(op))
       }
-      0xb4 => Instruction::LDY(Operand::ZeroPageX(self.load_byte(state))),
-      0xb5 => Instruction::LDA(Operand::ZeroPageX(self.load_byte(state))),
-      0xb6 => Instruction::LDX(Operand::ZeroPageY(self.load_byte(state))),
+      0xb4 => Instruction::LDY(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0xb5 => Instruction::LDA(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0xb6 => Instruction::LDX(Operand::ZeroPageY(Instruction::load_byte(state))),
       0xb7 => {
-        let op = Operand::ZeroPageY(self.load_byte(state));
+        let op = Operand::ZeroPageY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::LAX(op.clone())), Some(op))
       }
-      0xb9 => Instruction::LDA(Operand::AbsoluteY(self.load_addr(state))),
+      0xb9 => Instruction::LDA(Operand::AbsoluteY(Instruction::load_addr(state))),
       0xba => Instruction::TSX,
-      0xbc => Instruction::LDY(Operand::AbsoluteX(self.load_addr(state))),
-      0xbd => Instruction::LDA(Operand::AbsoluteX(self.load_addr(state))),
-      0xbe => Instruction::LDX(Operand::AbsoluteY(self.load_addr(state))),
+      0xbc => Instruction::LDY(Operand::AbsoluteX(Instruction::load_addr(state))),
+      0xbd => Instruction::LDA(Operand::AbsoluteX(Instruction::load_addr(state))),
+      0xbe => Instruction::LDX(Operand::AbsoluteY(Instruction::load_addr(state))),
       0xb8 => Instruction::CLV,
       0xbf => {
-        let op = Operand::AbsoluteY(self.load_addr(state));
+        let op = Operand::AbsoluteY(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::LAX(op.clone())), Some(op))
       }
 
-      0xc0 => Instruction::CPY(Operand::Immediate(self.load_byte(state))),
-      0xc1 => Instruction::CMP(Operand::IndirectX(self.load_byte(state))),
+      0xc0 => Instruction::CPY(Operand::Immediate(Instruction::load_byte(state))),
+      0xc1 => Instruction::CMP(Operand::IndirectX(Instruction::load_byte(state))),
       0xc3 => {
-        let op = Operand::IndirectX(self.load_byte(state));
+        let op = Operand::IndirectX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::DCP(op.clone())), Some(op))
       }
-      0xc4 => Instruction::CPY(Operand::ZeroPage(self.load_byte(state))),
-      0xc5 => Instruction::CMP(Operand::ZeroPage(self.load_byte(state))),
-      0xc6 => Instruction::DEC(Operand::ZeroPage(self.load_byte(state))),
+      0xc4 => Instruction::CPY(Operand::ZeroPage(Instruction::load_byte(state))),
+      0xc5 => Instruction::CMP(Operand::ZeroPage(Instruction::load_byte(state))),
+      0xc6 => Instruction::DEC(Operand::ZeroPage(Instruction::load_byte(state))),
       0xc7 => {
-        let op = Operand::ZeroPage(self.load_byte(state));
+        let op = Operand::ZeroPage(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::DCP(op.clone())), Some(op))
       }
       0xc8 => Instruction::INY,
-      0xc9 => Instruction::CMP(Operand::Immediate(self.load_byte(state))),
+      0xc9 => Instruction::CMP(Operand::Immediate(Instruction::load_byte(state))),
       0xca => Instruction::DEX,
-      0xcc => Instruction::CPY(Operand::Absolute(self.load_addr(state))),
-      0xcd => Instruction::CMP(Operand::Absolute(self.load_addr(state))),
-      0xce => Instruction::DEC(Operand::Absolute(self.load_addr(state))),
+      0xcc => Instruction::CPY(Operand::Absolute(Instruction::load_addr(state))),
+      0xcd => Instruction::CMP(Operand::Absolute(Instruction::load_addr(state))),
+      0xce => Instruction::DEC(Operand::Absolute(Instruction::load_addr(state))),
       0xcf => {
-        let op = Operand::Absolute(self.load_addr(state));
+        let op = Operand::Absolute(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::DCP(op.clone())), Some(op))
       }
 
-      0xd0 => Instruction::BNE(Operand::Relative(self.load_offset(state))),
-      0xd1 => Instruction::CMP(Operand::IndirectY(self.load_byte(state))),
+      0xd0 => Instruction::BNE(Operand::Relative(Instruction::load_offset(state))),
+      0xd1 => Instruction::CMP(Operand::IndirectY(Instruction::load_byte(state))),
       0xd3 => {
-        let op = Operand::IndirectY(self.load_byte(state));
+        let op = Operand::IndirectY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::DCP(op.clone())), Some(op))
       }
       0xd4 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPageX(self.load_byte(state))),
+        Some(Operand::ZeroPageX(Instruction::load_byte(state))),
       ),
-      0xd5 => Instruction::CMP(Operand::ZeroPageX(self.load_byte(state))),
-      0xd6 => Instruction::DEC(Operand::ZeroPageX(self.load_byte(state))),
+      0xd5 => Instruction::CMP(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0xd6 => Instruction::DEC(Operand::ZeroPageX(Instruction::load_byte(state))),
       0xd7 => {
-        let op = Operand::ZeroPageX(self.load_byte(state));
+        let op = Operand::ZeroPageX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::DCP(op.clone())), Some(op))
       }
       0xd8 => Instruction::CLD,
-      0xd9 => Instruction::CMP(Operand::AbsoluteY(self.load_addr(state))),
+      0xd9 => Instruction::CMP(Operand::AbsoluteY(Instruction::load_addr(state))),
       0xda => Instruction::Illegal(Box::new(Instruction::NOP), None),
       0xdb => {
-        let op = Operand::AbsoluteY(self.load_addr(state));
+        let op = Operand::AbsoluteY(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::DCP(op.clone())), Some(op))
       }
       0xdc => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::AbsoluteX(self.load_addr(state))),
+        Some(Operand::AbsoluteX(Instruction::load_addr(state))),
       ),
-      0xdd => Instruction::CMP(Operand::AbsoluteX(self.load_addr(state))),
-      0xde => Instruction::DEC(Operand::AbsoluteX(self.load_addr(state))),
+      0xdd => Instruction::CMP(Operand::AbsoluteX(Instruction::load_addr(state))),
+      0xde => Instruction::DEC(Operand::AbsoluteX(Instruction::load_addr(state))),
       0xdf => {
-        let op = Operand::AbsoluteX(self.load_addr(state));
+        let op = Operand::AbsoluteX(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::DCP(op.clone())), Some(op))
       }
 
-      0xe0 => Instruction::CPX(Operand::Immediate(self.load_byte(state))),
-      0xe1 => Instruction::SBC(Operand::IndirectX(self.load_byte(state))),
+      0xe0 => Instruction::CPX(Operand::Immediate(Instruction::load_byte(state))),
+      0xe1 => Instruction::SBC(Operand::IndirectX(Instruction::load_byte(state))),
       0xe3 => {
-        let op = Operand::IndirectX(self.load_byte(state));
+        let op = Operand::IndirectX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::ISB(op.clone())), Some(op))
       }
-      0xe4 => Instruction::CPX(Operand::ZeroPage(self.load_byte(state))),
-      0xe5 => Instruction::SBC(Operand::ZeroPage(self.load_byte(state))),
-      0xe6 => Instruction::INC(Operand::ZeroPage(self.load_byte(state))),
+      0xe4 => Instruction::CPX(Operand::ZeroPage(Instruction::load_byte(state))),
+      0xe5 => Instruction::SBC(Operand::ZeroPage(Instruction::load_byte(state))),
+      0xe6 => Instruction::INC(Operand::ZeroPage(Instruction::load_byte(state))),
       0xe7 => {
-        let op = Operand::ZeroPage(self.load_byte(state));
+        let op = Operand::ZeroPage(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::ISB(op.clone())), Some(op))
       }
       0xe8 => Instruction::INX,
-      0xe9 => Instruction::SBC(Operand::Immediate(self.load_byte(state))),
+      0xe9 => Instruction::SBC(Operand::Immediate(Instruction::load_byte(state))),
       0xea => Instruction::NOP,
       0xeb => {
-        let op = Operand::Immediate(self.load_byte(state));
+        let op = Operand::Immediate(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::SBC(op.clone())), Some(op))
       }
-      0xec => Instruction::CPX(Operand::Absolute(self.load_addr(state))),
-      0xed => Instruction::SBC(Operand::Absolute(self.load_addr(state))),
-      0xee => Instruction::INC(Operand::Absolute(self.load_addr(state))),
+      0xec => Instruction::CPX(Operand::Absolute(Instruction::load_addr(state))),
+      0xed => Instruction::SBC(Operand::Absolute(Instruction::load_addr(state))),
+      0xee => Instruction::INC(Operand::Absolute(Instruction::load_addr(state))),
       0xef => {
-        let op = Operand::Absolute(self.load_addr(state));
+        let op = Operand::Absolute(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::ISB(op.clone())), Some(op))
       }
 
-      0xf0 => Instruction::BEQ(Operand::Relative(self.load_offset(state))),
-      0xf1 => Instruction::SBC(Operand::IndirectY(self.load_byte(state))),
+      0xf0 => Instruction::BEQ(Operand::Relative(Instruction::load_offset(state))),
+      0xf1 => Instruction::SBC(Operand::IndirectY(Instruction::load_byte(state))),
       0xf3 => {
-        let op = Operand::IndirectY(self.load_byte(state));
+        let op = Operand::IndirectY(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::ISB(op.clone())), Some(op))
       }
       0xf4 => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::ZeroPageX(self.load_byte(state))),
+        Some(Operand::ZeroPageX(Instruction::load_byte(state))),
       ),
-      0xf5 => Instruction::SBC(Operand::ZeroPageX(self.load_byte(state))),
-      0xf6 => Instruction::INC(Operand::ZeroPageX(self.load_byte(state))),
+      0xf5 => Instruction::SBC(Operand::ZeroPageX(Instruction::load_byte(state))),
+      0xf6 => Instruction::INC(Operand::ZeroPageX(Instruction::load_byte(state))),
       0xf7 => {
-        let op = Operand::ZeroPageX(self.load_byte(state));
+        let op = Operand::ZeroPageX(Instruction::load_byte(state));
         Instruction::Illegal(Box::new(Instruction::ISB(op.clone())), Some(op))
       }
       0xf8 => Instruction::SED,
-      0xf9 => Instruction::SBC(Operand::AbsoluteY(self.load_addr(state))),
+      0xf9 => Instruction::SBC(Operand::AbsoluteY(Instruction::load_addr(state))),
       0xfb => {
-        let op = Operand::AbsoluteY(self.load_addr(state));
+        let op = Operand::AbsoluteY(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::ISB(op.clone())), Some(op))
       }
       0xfc => Instruction::Illegal(
         Box::new(Instruction::NOP),
-        Some(Operand::AbsoluteX(self.load_addr(state))),
+        Some(Operand::AbsoluteX(Instruction::load_addr(state))),
       ),
       0xfa => Instruction::Illegal(Box::new(Instruction::NOP), None),
-      0xfd => Instruction::SBC(Operand::AbsoluteX(self.load_addr(state))),
-      0xfe => Instruction::INC(Operand::AbsoluteX(self.load_addr(state))),
+      0xfd => Instruction::SBC(Operand::AbsoluteX(Instruction::load_addr(state))),
+      0xfe => Instruction::INC(Operand::AbsoluteX(Instruction::load_addr(state))),
       0xff => {
-        let op = Operand::AbsoluteX(self.load_addr(state));
+        let op = Operand::AbsoluteX(Instruction::load_addr(state));
         Instruction::Illegal(Box::new(Instruction::ISB(op.clone())), Some(op))
       }
 

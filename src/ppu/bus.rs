@@ -31,6 +31,23 @@ impl PPU {
     (self, result)
   }
 
+  pub fn read_bus_readonly(&self, machine: &Machine, register: PPURegister) -> u8 {
+    match register {
+      PPURegister::PPUSTATUS => {
+        (u8::from(self.status) & 0b11100000) | (self.data_buffer & 0b00011111)
+      }
+      PPURegister::PPUDATA => {
+        if u16::from(self.vram_addr) > 0x3f00 {
+          // palette memory is read immediately
+          self.get_ppu_mem(machine, self.vram_addr.into())
+        } else {
+          self.data_buffer
+        }
+      }
+      _ => 0,
+    }
+  }
+
   pub fn write_bus(mut self, machine: &mut Machine, register: PPURegister, value: u8) -> Self {
     match register {
       PPURegister::PPUCTRL => {

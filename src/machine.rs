@@ -14,8 +14,8 @@ pub type WorkRAM = [u8; 2048];
 pub struct Machine {
   pub work_ram: WorkRAM,
   pub cartridge: BoxCartridge,
-  pub cpu_state: CPU,
-  pub ppu_state: PPU,
+  pub cpu: CPU,
+  pub ppu: PPU,
   pub controllers: [Controller; 2],
   pub cycle_count: u64,
   pub last_executed_instruction: Option<ExecutedInstruction>,
@@ -25,8 +25,8 @@ impl Debug for Machine {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("Machine")
       .field("cartridge", &self.cartridge)
-      .field("cpu_state", &self.cpu_state)
-      .field("ppu_state", &self.ppu_state)
+      .field("cpu_state", &self.cpu)
+      .field("ppu_state", &self.ppu)
       .field("controllers", &self.controllers)
       .field("cycle_count", &self.cycle_count)
       .field("last_executed_instruction", &self.last_executed_instruction)
@@ -39,8 +39,8 @@ impl Clone for Machine {
     Self {
       work_ram: self.work_ram.clone(),
       cartridge: dyn_clone::clone_box(&*self.cartridge),
-      cpu_state: self.cpu_state.clone(),
-      ppu_state: self.ppu_state.clone(),
+      cpu: self.cpu.clone(),
+      ppu: self.ppu.clone(),
       controllers: self.controllers.clone(),
       cycle_count: self.cycle_count.clone(),
       last_executed_instruction: None,
@@ -53,8 +53,8 @@ impl Machine {
     Self {
       work_ram: [0; 2048],
       cartridge: load_cartridge(rom),
-      cpu_state: CPU::new(),
-      ppu_state: PPU::new(),
+      cpu: CPU::new(),
+      ppu: PPU::new(),
       controllers: [Controller::new(); 2],
       cycle_count: 0,
       last_executed_instruction: None,
@@ -65,16 +65,15 @@ impl Machine {
     loop {
       self.tick(pixbuf);
 
-      if self.ppu_state.cycle == 0 && self.ppu_state.scanline == 0 {
+      if self.ppu.cycle == 0 && self.ppu.scanline == 0 {
         break;
       }
     }
   }
 
   pub fn tick_cpu(&mut self) {
-    let (new_cpu_state, executed_instruction) = self.cpu_state.clone().tick(self);
+    let executed_instruction = CPU::tick(self);
     self.cycle_count += 1;
-    self.cpu_state = new_cpu_state;
 
     if let Some(instruction) = executed_instruction {
       self.last_executed_instruction = Some(instruction);
@@ -82,12 +81,15 @@ impl Machine {
   }
 
   pub fn tick_ppu(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
-    let new_ppu_state = self.ppu_state.clone().tick(self, pixbuf);
-    self.ppu_state = new_ppu_state;
+    let nmi_set = PPU::tick(self, pixbuf);
+
+    if nmi_set {
+      self.nmi();
+    }
   }
 
   pub fn tick(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
-    if self.cpu_state.wait_cycles == 0 && !env::var("DISASSEMBLE").unwrap_or_default().is_empty() {
+    if self.cpu.wait_cycles == 0 && !env::var("DISASSEMBLE").unwrap_or_default().is_empty() {
       if let Some(executed_instruction) = &self.last_executed_instruction {
         println!("{}", executed_instruction.disassemble());
       }
@@ -100,12 +102,33 @@ impl Machine {
   }
 
   pub fn nmi(&mut self) {
-    self.cpu_state.nmi_set = true;
+    self.cpu.nmi_set = true;
   }
 
   pub fn reset(&mut self) {
-    let new_cpu_state = self.cpu_state.clone().reset(self);
-    self.cpu_state = new_cpu_state;
+    CPU::reset(self);
+  }
+
+  pub fn get_cpu_mem_readonly(&self, addr: u16) -> u8 {
+    if addr < 0x2000 {
+      let actual_address = addr % 0x800;
+      self.work_ram[usize::from(actual_address)]
+    } else if addr < 0x4000 {
+      self
+        .ppu
+        .read_bus_readonly(self, PPURegister::from_address(addr))
+    } else if addr < 0x4016 {
+      // TODO APU registers
+      0
+    } else if addr < 0x4018 {
+      let mut controller = self.controllers[addr as usize - 0x4016];
+      controller.read()
+    } else if addr < 0x4020 {
+      // TODO: CPU test mode
+      0
+    } else {
+      self.cartridge.get_cpu_mem(addr)
+    }
   }
 
   pub fn get_cpu_mem(&mut self, addr: u16) -> u8 {
@@ -114,10 +137,10 @@ impl Machine {
       self.work_ram[usize::from(actual_address)]
     } else if addr < 0x4000 {
       let (new_ppu_state, result) = self
-        .ppu_state
+        .ppu
         .clone()
         .read_bus(self, PPURegister::from_address(addr));
-      self.ppu_state = new_ppu_state;
+      self.ppu = new_ppu_state;
       result
     } else if addr < 0x4016 {
       // TODO APU registers
@@ -138,12 +161,11 @@ impl Machine {
       let actual_address = addr % 0x800;
       self.work_ram[usize::from(actual_address)] = value;
     } else if addr < 0x4000 {
-      let new_ppu_state =
-        self
-          .ppu_state
-          .clone()
-          .write_bus(self, PPURegister::from_address(addr), value);
-      self.ppu_state = new_ppu_state;
+      let new_ppu_state = self
+        .ppu
+        .clone()
+        .write_bus(self, PPURegister::from_address(addr), value);
+      self.ppu = new_ppu_state;
     } else if addr < 0x4016 {
       // TODO APU registers
       ()
@@ -183,8 +205,8 @@ mod tests {
 
     let mut machine = Machine::from_rom(rom);
     machine.cycle_count = 7;
-    machine.ppu_state.cycle = 21;
-    machine.cpu_state.pc = 0xc000;
+    machine.ppu.cycle = 21;
+    machine.cpu.pc = 0xc000;
 
     let mut fake_pixbuf = [0; PIXEL_BUFFER_SIZE];
     let disasm_bytes: Vec<u8> = Vec::with_capacity(1 * 1024 * 1024);
@@ -193,7 +215,7 @@ mod tests {
     while machine.cycle_count < 26560 {
       machine.tick(&mut fake_pixbuf);
 
-      if machine.cpu_state.wait_cycles == 0 {
+      if machine.cpu.wait_cycles == 0 {
         if let Some(instruction) = &machine.last_executed_instruction {
           disasm_writer
             .write_fmt(format_args!("{}\r\n", instruction.disassemble()))
@@ -205,6 +227,8 @@ mod tests {
     disasm_writer.flush().unwrap();
     let disasm: String = String::from_utf8(disasm_writer.into_inner().unwrap()).unwrap();
 
-    assert_eq!(disasm, expected_log);
+    for (disasm_line, expected_line) in disasm.split("\r\n").zip(expected_log.split("\r\n")) {
+      assert_eq!(disasm_line, expected_line);
+    }
   }
 }

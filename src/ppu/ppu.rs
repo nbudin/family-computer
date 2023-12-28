@@ -63,147 +63,153 @@ impl PPU {
     }
   }
 
-  pub fn tick(mut self, machine: &mut Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) -> Self {
-    if self.scanline >= -1 && self.scanline < 240 {
-      if self.scanline == 0 && self.cycle == 0 {
+  pub fn tick(state: &mut Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) -> bool {
+    let mut nmi_set = false;
+
+    if state.ppu.scanline >= -1 && state.ppu.scanline < 240 {
+      if state.ppu.scanline == 0 && state.ppu.cycle == 0 {
         // Odd frame cycle skip
-        self.cycle = 1;
+        state.ppu.cycle = 1;
       }
 
-      if self.scanline == -1 && self.cycle == 1 {
-        self.status.set_vertical_blank(false);
-        self.status.set_sprite_zero_hit(false);
-        self.status.set_sprite_overflow(false);
+      if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
+        state.ppu.status.set_vertical_blank(false);
+        state.ppu.status.set_sprite_zero_hit(false);
+        state.ppu.status.set_sprite_overflow(false);
       }
 
-      if (self.cycle >= 2 && self.cycle < 258) || (self.cycle >= 321 && self.cycle < 338) {
-        self.update_shifters();
+      if (state.ppu.cycle >= 2 && state.ppu.cycle < 258)
+        || (state.ppu.cycle >= 321 && state.ppu.cycle < 338)
+      {
+        state.ppu.update_shifters();
 
-        match (self.cycle - 1) % 8 {
+        match (state.ppu.cycle - 1) % 8 {
           0 => {
-            self.load_background_shifters();
-            self.bg_next_tile_id =
-              self.get_ppu_mem(machine, 0x2000 | u16::from(self.vram_addr) & 0x0fff);
+            state.ppu.load_background_shifters();
+            state.ppu.bg_next_tile_id = state
+              .ppu
+              .get_ppu_mem(state, 0x2000 | u16::from(state.ppu.vram_addr) & 0x0fff);
           }
           2 => {
-            self.bg_next_tile_attrib = self.get_ppu_mem(
-              machine,
+            state.ppu.bg_next_tile_attrib = state.ppu.get_ppu_mem(
+              state,
               0x23c0
-                | (if self.vram_addr.nametable_y() {
+                | (if state.ppu.vram_addr.nametable_y() {
                   1 << 11
                 } else {
                   0
                 })
-                | (if self.vram_addr.nametable_x() {
+                | (if state.ppu.vram_addr.nametable_x() {
                   1 << 10
                 } else {
                   0
                 })
-                | ((self.vram_addr.coarse_y() as u16 >> 2) << 3)
-                | (self.vram_addr.coarse_x() as u16 >> 2),
+                | ((state.ppu.vram_addr.coarse_y() as u16 >> 2) << 3)
+                | (state.ppu.vram_addr.coarse_x() as u16 >> 2),
             );
 
-            if self.vram_addr.coarse_y() & 0x02 > 0 {
-              self.bg_next_tile_attrib >>= 4;
+            if state.ppu.vram_addr.coarse_y() & 0x02 > 0 {
+              state.ppu.bg_next_tile_attrib >>= 4;
             }
-            if self.vram_addr.coarse_x() & 0x02 > 0 {
-              self.bg_next_tile_attrib >>= 2;
+            if state.ppu.vram_addr.coarse_x() & 0x02 > 0 {
+              state.ppu.bg_next_tile_attrib >>= 2;
             }
-            self.bg_next_tile_attrib &= 0x03;
+            state.ppu.bg_next_tile_attrib &= 0x03;
           }
           4 => {
-            self.bg_next_tile_low = self.get_ppu_mem(
-              machine,
-              (if self.control.pattern_background() {
+            state.ppu.bg_next_tile_low = state.ppu.get_ppu_mem(
+              state,
+              (if state.ppu.control.pattern_background() {
                 1 << 12
               } else {
                 0
-              }) + ((self.bg_next_tile_id as u16) << 4)
-                + (self.vram_addr.fine_y() as u16),
+              }) + ((state.ppu.bg_next_tile_id as u16) << 4)
+                + (state.ppu.vram_addr.fine_y() as u16),
             )
           }
           6 => {
-            self.bg_next_tile_high = self.get_ppu_mem(
-              machine,
-              (if self.control.pattern_background() {
+            state.ppu.bg_next_tile_high = state.ppu.get_ppu_mem(
+              state,
+              (if state.ppu.control.pattern_background() {
                 1 << 12
               } else {
                 0
-              }) + ((self.bg_next_tile_id as u16) << 4)
-                + (self.vram_addr.fine_y() as u16)
+              }) + ((state.ppu.bg_next_tile_id as u16) << 4)
+                + (state.ppu.vram_addr.fine_y() as u16)
                 + 8,
             )
           }
           7 => {
-            self.increment_scroll_x();
+            state.ppu.increment_scroll_x();
           }
           _ => {}
         }
 
-        if self.cycle == 256 {
-          self.increment_scroll_y();
+        if state.ppu.cycle == 256 {
+          state.ppu.increment_scroll_y();
         }
 
-        if self.cycle == 257 {
-          self.load_background_shifters();
-          self.transfer_address_x();
+        if state.ppu.cycle == 257 {
+          state.ppu.load_background_shifters();
+          state.ppu.transfer_address_x();
         }
 
-        if self.cycle == 338 || self.cycle == 340 {
+        if state.ppu.cycle == 338 || state.ppu.cycle == 340 {
           // superfluous reads of tile id at end of scanline
-          self.bg_next_tile_id =
-            self.get_ppu_mem(machine, 0x2000 | (u16::from(self.vram_addr) & 0x0fff));
+          state.ppu.bg_next_tile_id = state
+            .ppu
+            .get_ppu_mem(state, 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff));
         }
 
-        if self.scanline == -1 && self.cycle >= 280 && self.cycle < 305 {
-          self.transfer_address_y();
+        if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
+          state.ppu.transfer_address_y();
         }
       }
     }
 
-    if self.scanline == 240 {
+    if state.ppu.scanline == 240 {
       // post render scanline - do nothing
     }
 
-    if self.scanline >= 241 && self.scanline < 261 {
-      if self.scanline == 241 && self.cycle == 1 {
+    if state.ppu.scanline >= 241 && state.ppu.scanline < 261 {
+      if state.ppu.scanline == 241 && state.ppu.cycle == 1 {
         // entering vblank
-        self.status.set_vertical_blank(true);
-        if self.control.enable_nmi() {
-          machine.nmi();
+        state.ppu.status.set_vertical_blank(true);
+        if state.ppu.control.enable_nmi() {
+          nmi_set = true;
         }
       }
     }
 
-    if self.cycle >= 1
-      && self.scanline >= 0
-      && self.cycle <= PIXEL_BUFFER_WIDTH as i32
-      && self.scanline < PIXEL_BUFFER_HEIGHT as i32
+    if state.ppu.cycle >= 1
+      && state.ppu.scanline >= 0
+      && state.ppu.cycle <= PIXEL_BUFFER_WIDTH as i32
+      && state.ppu.scanline < PIXEL_BUFFER_HEIGHT as i32
     {
       // Pixel is in the visible range of the CRT
       let mut color: [u8; 3] = [0, 0, 0];
 
-      if self.mask.render_background() {
-        color = self.get_current_pixel_bg_color(machine);
+      if state.ppu.mask.render_background() {
+        color = state.ppu.get_current_pixel_bg_color(state);
       }
 
-      self.set_pixel(
+      state.ppu.set_pixel(
         pixbuf,
         color,
-        u32::try_from(self.cycle - 1).unwrap(),
-        u32::try_from(self.scanline).unwrap(),
+        u32::try_from(state.ppu.cycle - 1).unwrap(),
+        u32::try_from(state.ppu.scanline).unwrap(),
       );
     }
 
-    self.cycle += 1;
-    if self.cycle >= 341 {
-      self.cycle = 0;
-      self.scanline += 1;
-      if self.scanline >= 261 {
-        self.scanline = -1;
+    state.ppu.cycle += 1;
+    if state.ppu.cycle >= 341 {
+      state.ppu.cycle = 0;
+      state.ppu.scanline += 1;
+      if state.ppu.scanline >= 261 {
+        state.ppu.scanline = -1;
       }
     }
 
-    self
+    nmi_set
   }
 }

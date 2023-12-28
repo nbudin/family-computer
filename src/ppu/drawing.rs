@@ -11,7 +11,7 @@ impl PPU {
     self.get_ppu_mem(machine, 0x3f00 + (palette_index * 4) + color_index)
   }
 
-  pub fn get_current_pixel_bg_color(&mut self, machine: &Machine) -> [u8; 3] {
+  pub fn get_current_pixel_bg_color(&self, machine: &Machine) -> [u8; 3] {
     let bit_mux = 0x8000 >> self.fine_x;
 
     let plane0_pixel: u16 = if (self.bg_shifter_pattern_low & bit_mux) > 0 {

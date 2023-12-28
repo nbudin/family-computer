@@ -1,6 +1,4 @@
-use crate::{cpu::CPU, machine::Machine};
-
-use super::LoadInstruction;
+use crate::machine::Machine;
 
 #[derive(Debug, Clone)]
 pub enum Operand {
@@ -19,41 +17,41 @@ pub enum Operand {
 }
 
 impl Operand {
-  pub fn get_addr(&self, cpu_state: &CPU, machine_state: &mut Machine) -> (u16, bool) {
+  pub fn get_addr(&self, state: &mut Machine) -> (u16, bool) {
     let mut page_boundary_crossed = false;
     let result_addr = match self {
       Operand::ZeroPage(addr) => u16::from(*addr),
-      Operand::ZeroPageX(addr) => u16::from(cpu_state.x.wrapping_add(*addr)),
-      Operand::ZeroPageY(addr) => u16::from(cpu_state.y.wrapping_add(*addr)),
+      Operand::ZeroPageX(addr) => u16::from(state.cpu.x.wrapping_add(*addr)),
+      Operand::ZeroPageY(addr) => u16::from(state.cpu.y.wrapping_add(*addr)),
       Operand::Absolute(addr) => *addr,
       Operand::AbsoluteX(addr) => {
-        let new_addr = (*addr).wrapping_add(u16::from(cpu_state.x));
+        let new_addr = (*addr).wrapping_add(u16::from(state.cpu.x));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
       Operand::AbsoluteY(addr) => {
-        let new_addr = (*addr).wrapping_add(u16::from(cpu_state.y));
+        let new_addr = (*addr).wrapping_add(u16::from(state.cpu.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
       Operand::Indirect(addr) => {
-        let low = machine_state.get_cpu_mem(*addr);
-        let high = machine_state.get_cpu_mem(
+        let low = state.get_cpu_mem(*addr);
+        let high = state.get_cpu_mem(
           (*addr & 0xff00) + u16::from(u8::try_from(*addr & 0xff).unwrap().wrapping_add(1)),
         );
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectX(addr) => {
-        let addr_location = cpu_state.x.wrapping_add(*addr);
-        let low = machine_state.get_cpu_mem(u16::from(addr_location));
-        let high = machine_state.get_cpu_mem(u16::from(addr_location.wrapping_add(1)));
+        let addr_location = state.cpu.x.wrapping_add(*addr);
+        let low = state.get_cpu_mem(u16::from(addr_location));
+        let high = state.get_cpu_mem(u16::from(addr_location.wrapping_add(1)));
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectY(zp_addr) => {
-        let low = machine_state.get_cpu_mem(u16::from(*zp_addr));
-        let high = machine_state.get_cpu_mem(u16::from(zp_addr.wrapping_add(1)));
+        let low = state.get_cpu_mem(u16::from(*zp_addr));
+        let high = state.get_cpu_mem(u16::from(zp_addr.wrapping_add(1)));
         let addr = (u16::from(high) << 8) + u16::from(low);
-        let new_addr = addr.wrapping_add(u16::from(cpu_state.y));
+        let new_addr = addr.wrapping_add(u16::from(state.cpu.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
@@ -65,13 +63,70 @@ impl Operand {
     (result_addr, page_boundary_crossed)
   }
 
-  pub fn eval(&self, cpu_state: &CPU, machine_state: &mut Machine) -> (u8, bool) {
+  pub fn get_addr_readonly(&self, state: &Machine) -> (u16, bool) {
+    let mut page_boundary_crossed = false;
+    let result_addr = match self {
+      Operand::ZeroPage(addr) => u16::from(*addr),
+      Operand::ZeroPageX(addr) => u16::from(state.cpu.x.wrapping_add(*addr)),
+      Operand::ZeroPageY(addr) => u16::from(state.cpu.y.wrapping_add(*addr)),
+      Operand::Absolute(addr) => *addr,
+      Operand::AbsoluteX(addr) => {
+        let new_addr = (*addr).wrapping_add(u16::from(state.cpu.x));
+        page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
+        new_addr
+      }
+      Operand::AbsoluteY(addr) => {
+        let new_addr = (*addr).wrapping_add(u16::from(state.cpu.y));
+        page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
+        new_addr
+      }
+      Operand::Indirect(addr) => {
+        let low = state.get_cpu_mem_readonly(*addr);
+        let high = state.get_cpu_mem_readonly(
+          (*addr & 0xff00) + u16::from(u8::try_from(*addr & 0xff).unwrap().wrapping_add(1)),
+        );
+        (u16::from(high) << 8) + u16::from(low)
+      }
+      Operand::IndirectX(addr) => {
+        let addr_location = state.cpu.x.wrapping_add(*addr);
+        let low = state.get_cpu_mem_readonly(u16::from(addr_location));
+        let high = state.get_cpu_mem_readonly(u16::from(addr_location.wrapping_add(1)));
+        (u16::from(high) << 8) + u16::from(low)
+      }
+      Operand::IndirectY(zp_addr) => {
+        let low = state.get_cpu_mem_readonly(u16::from(*zp_addr));
+        let high = state.get_cpu_mem_readonly(u16::from(zp_addr.wrapping_add(1)));
+        let addr = (u16::from(high) << 8) + u16::from(low);
+        let new_addr = addr.wrapping_add(u16::from(state.cpu.y));
+        page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
+        new_addr
+      }
+      _ => {
+        panic!("{:?} is not an address", self)
+      }
+    };
+
+    (result_addr, page_boundary_crossed)
+  }
+
+  pub fn eval(&self, state: &mut Machine) -> (u8, bool) {
     match self {
-      Operand::Accumulator => (cpu_state.a, false),
+      Operand::Accumulator => (state.cpu.a, false),
       Operand::Immediate(value) => (*value, false),
       _ => {
-        let (addr, page_boundary_crossed) = self.get_addr(cpu_state, machine_state);
-        (machine_state.get_cpu_mem(addr), page_boundary_crossed)
+        let (addr, page_boundary_crossed) = self.get_addr(state);
+        (state.get_cpu_mem(addr), page_boundary_crossed)
+      }
+    }
+  }
+
+  pub fn eval_readonly(&self, state: &Machine) -> (u8, bool) {
+    match self {
+      Operand::Accumulator => (state.cpu.a, false),
+      Operand::Immediate(value) => (*value, false),
+      _ => {
+        let (addr, page_boundary_crossed) = self.get_addr_readonly(state);
+        (state.get_cpu_mem_readonly(addr), page_boundary_crossed)
       }
     }
   }
@@ -94,7 +149,7 @@ impl Operand {
     }
   }
 
-  pub fn disassemble(&self, cpu: &CPU, machine_state: &mut Machine, eval: bool) -> String {
+  pub fn disassemble(&self, state: &Machine, eval: bool) -> String {
     let operand_formatted = match self {
       Operand::Accumulator => "A".to_owned(),
       Operand::Immediate(value) => format!("#${:02X}", value),
@@ -107,7 +162,9 @@ impl Operand {
       Operand::Indirect(addr) => format!("(${:04X})", addr),
       Operand::IndirectX(zp_addr) => format!("(${:02X},X)", zp_addr),
       Operand::IndirectY(zp_addr) => format!("(${:02X}),Y", zp_addr),
-      Operand::Relative(offset) => format!("${:04X}", cpu.get_pc() as i32 + 2 + *offset as i32),
+      Operand::Relative(offset) => {
+        format!("${:04X}", state.cpu.pc as i32 + *offset as i32)
+      }
     };
 
     if eval
@@ -121,48 +178,48 @@ impl Operand {
           format!(
             "{} @ {:04X} = {:02X}",
             operand_formatted,
-            self.get_addr(cpu, machine_state).0,
-            self.eval(cpu, machine_state).0
+            self.get_addr_readonly(state).0,
+            self.eval_readonly(state).0
           )
         }
         Operand::ZeroPageX(_) | Operand::ZeroPageY(_) => {
           format!(
             "{} @ {:02X} = {:02X}",
             operand_formatted,
-            self.get_addr(cpu, machine_state).0,
-            self.eval(cpu, machine_state).0
+            self.get_addr_readonly(state).0,
+            self.eval_readonly(state).0
           )
         }
         Operand::Indirect(_) => {
           format!(
             "{} = {:04X}",
             operand_formatted,
-            self.get_addr(cpu, machine_state).0
+            self.get_addr_readonly(state).0
           )
         }
         Operand::IndirectX(zp_addr) => format!(
           "{} @ {:02X} = {:04X} = {:02X}",
           operand_formatted,
-          cpu.x.wrapping_add(*zp_addr),
-          self.get_addr(cpu, machine_state).0,
-          self.eval(cpu, machine_state).0
+          state.cpu.x.wrapping_add(*zp_addr),
+          self.get_addr_readonly(state).0,
+          self.eval_readonly(state).0
         ),
         Operand::IndirectY(zp_addr) => {
-          let low = machine_state.get_cpu_mem(u16::from(*zp_addr));
-          let high = machine_state.get_cpu_mem(u16::from(zp_addr.wrapping_add(1)));
+          let low = state.get_cpu_mem_readonly(u16::from(*zp_addr));
+          let high = state.get_cpu_mem_readonly(u16::from(zp_addr.wrapping_add(1)));
           let addr = (u16::from(high) << 8) + u16::from(low);
           format!(
             "{} = {:04X} @ {:04X} = {:02X}",
             operand_formatted,
             addr,
-            self.get_addr(cpu, machine_state).0,
-            self.eval(cpu, machine_state).0
+            self.get_addr_readonly(state).0,
+            self.eval_readonly(state).0
           )
         }
         _ => format!(
           "{} = {:02X}",
           operand_formatted,
-          self.eval(cpu, machine_state).0
+          self.eval_readonly(state).0
         ),
       }
     } else {
