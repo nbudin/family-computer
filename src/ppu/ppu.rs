@@ -88,22 +88,14 @@ impl PPU {
             state.ppu.load_background_shifters();
             state.ppu.bg_next_tile_id = state
               .ppu
-              .get_ppu_mem(state, 0x2000 | u16::from(state.ppu.vram_addr) & 0x0fff);
+              .get_ppu_mem(state, 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff));
           }
           2 => {
             state.ppu.bg_next_tile_attrib = state.ppu.get_ppu_mem(
               state,
               0x23c0
-                | (if state.ppu.vram_addr.nametable_y() {
-                  1 << 11
-                } else {
-                  0
-                })
-                | (if state.ppu.vram_addr.nametable_x() {
-                  1 << 10
-                } else {
-                  0
-                })
+                | (u16::from(state.ppu.vram_addr.nametable_y()) << 11)
+                | (u16::from(state.ppu.vram_addr.nametable_x()) << 10)
                 | ((state.ppu.vram_addr.coarse_y() as u16 >> 2) << 3)
                 | (state.ppu.vram_addr.coarse_x() as u16 >> 2),
             );
@@ -119,22 +111,16 @@ impl PPU {
           4 => {
             state.ppu.bg_next_tile_low = state.ppu.get_ppu_mem(
               state,
-              (if state.ppu.control.pattern_background() {
-                1 << 12
-              } else {
-                0
-              }) + ((state.ppu.bg_next_tile_id as u16) << 4)
+              (u16::from(state.ppu.control.pattern_background()) << 12)
+                + ((state.ppu.bg_next_tile_id as u16) << 4)
                 + (state.ppu.vram_addr.fine_y() as u16),
             )
           }
           6 => {
             state.ppu.bg_next_tile_high = state.ppu.get_ppu_mem(
               state,
-              (if state.ppu.control.pattern_background() {
-                1 << 12
-              } else {
-                0
-              }) + ((state.ppu.bg_next_tile_id as u16) << 4)
+              (u16::from(state.ppu.control.pattern_background()) << 12)
+                + ((state.ppu.bg_next_tile_id as u16) << 4)
                 + (state.ppu.vram_addr.fine_y() as u16)
                 + 8,
             )

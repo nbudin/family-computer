@@ -65,7 +65,7 @@ impl Machine {
     loop {
       self.tick(pixbuf);
 
-      if self.ppu.cycle == 0 && self.ppu.scanline == 0 {
+      if self.ppu.cycle == 0 && self.ppu.scanline == -1 {
         break;
       }
     }
