@@ -35,6 +35,7 @@ pub struct PPU {
   pub bg_shifter_attrib_low: u16,
   pub bg_shifter_attrib_high: u16,
   pub frame_count: u64,
+  pub status_register_read_last_tick: bool,
 }
 
 impl PPU {
@@ -62,6 +63,7 @@ impl PPU {
       bg_shifter_pattern_high: 0,
       bg_shifter_pattern_low: 0,
       frame_count: 0,
+      status_register_read_last_tick: false,
     }
   }
 
@@ -72,13 +74,13 @@ impl PPU {
       if state.ppu.frame_count % 2 == 1 && state.ppu.scanline == 0 && state.ppu.cycle == 0 {
         // Odd frame cycle skip
         if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
-          println!("Skipping cycle on frame {}", state.ppu.frame_count);
+          // println!("Skipping cycle on frame {}", state.ppu.frame_count);
           state.ppu.cycle = 1;
         } else {
-          println!(
-            "Not skipping cycle on frame {} because rendering is disabled",
-            state.ppu.frame_count
-          );
+          // println!(
+          //   "Not skipping cycle on frame {} because rendering is disabled",
+          //   state.ppu.frame_count
+          // );
         }
       }
 
@@ -169,13 +171,17 @@ impl PPU {
 
     if state.ppu.scanline >= 241 && state.ppu.scanline < 261 {
       if state.ppu.scanline == 241 && state.ppu.cycle == 1 {
-        // entering vblank
-        state.ppu.status.set_vertical_blank(true);
-        if state.ppu.control.enable_nmi() {
-          nmi_set = true;
+        // emulate a race condition in the PPU: reading the status register suppresses vblank and nmi next tick
+        if !state.ppu.status_register_read_last_tick {
+          state.ppu.status.set_vertical_blank(true);
+          if state.ppu.control.enable_nmi() {
+            nmi_set = true;
+          }
         }
       }
     }
+
+    state.ppu.status_register_read_last_tick = false;
 
     if state.ppu.cycle >= 1
       && state.ppu.scanline >= 0
