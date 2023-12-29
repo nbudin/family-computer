@@ -26,12 +26,18 @@ pub struct NROM {
 impl Cartridge for NROM {
   fn from_ines_rom(rom: crate::ines_rom::INESRom) -> Self {
     let mut prg_rom: [u8; 32 * 1024] = [0; 32 * 1024];
-    for chunk in prg_rom.chunks_exact_mut(rom.prg_data.len()) {
-      chunk.copy_from_slice(&rom.prg_data);
+    if !rom.prg_data.is_empty() {
+      for chunk in prg_rom.chunks_exact_mut(rom.prg_data.len()) {
+        chunk.copy_from_slice(&rom.prg_data);
+      }
     }
 
     let mut chr_rom: [u8; 8 * 1024] = [0; 8 * 1024];
-    chr_rom.copy_from_slice(&rom.chr_data);
+    if !rom.chr_data.is_empty() {
+      for chunk in chr_rom.chunks_exact_mut(rom.chr_data.len()) {
+        chunk.copy_from_slice(&rom.chr_data);
+      }
+    }
 
     Self {
       prg_rom,
