@@ -7,7 +7,7 @@ mod machine;
 mod palette;
 mod ppu;
 
-use std::{env, path::Path, time::Duration};
+use std::{env, fs::File, io::Write, path::Path, time::Duration};
 
 use ines_rom::INESRom;
 use machine::Machine;
@@ -55,7 +55,6 @@ pub async fn run() -> Result<(), EventLoopError> {
   let rom = INESRom::from_file(&rom_path).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
   let mut machine = Machine::from_rom(rom);
-  machine.reset();
 
   let mut prev_time = std::time::Instant::now();
 
@@ -102,11 +101,23 @@ pub async fn run() -> Result<(), EventLoopError> {
               NamedKey::Space => machine.controllers[0]
                 .state
                 .set_select(event.state.is_pressed()),
+              NamedKey::Escape => {
+                if event.state.is_pressed() {
+                  target.exit();
+                }
+              }
               _ => {}
             },
             Key::Character(character) => match character.as_str() {
               "a" => machine.controllers[0].state.set_a(event.state.is_pressed()),
               "s" => machine.controllers[0].state.set_b(event.state.is_pressed()),
+              "m" => {
+                if event.state.is_pressed() {
+                  let mut dumpfile = File::create("memorydump.bin").unwrap();
+                  dumpfile.write(&machine.work_ram).unwrap();
+                  println!("Wrote memory to dumpfile.bin");
+                }
+              }
               _ => {}
             },
             _ => {}

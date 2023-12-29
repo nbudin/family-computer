@@ -35,6 +35,7 @@ pub struct PPU {
   pub bg_shifter_attrib_low: u16,
   pub bg_shifter_attrib_high: u16,
   pub frame_count: u64,
+  pub status_register_read_this_tick: bool,
   pub status_register_read_last_tick: bool,
 }
 
@@ -63,12 +64,15 @@ impl PPU {
       bg_shifter_pattern_high: 0,
       bg_shifter_pattern_low: 0,
       frame_count: 0,
+      status_register_read_this_tick: false,
       status_register_read_last_tick: false,
     }
   }
 
   pub fn tick(state: &mut Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) -> bool {
     let mut nmi_set = false;
+    state.ppu.status_register_read_last_tick = state.ppu.status_register_read_this_tick;
+    state.ppu.status_register_read_this_tick = false;
 
     if state.ppu.scanline >= -1 && state.ppu.scanline < 240 {
       if state.ppu.frame_count % 2 == 1 && state.ppu.scanline == 0 && state.ppu.cycle == 0 {
@@ -171,17 +175,15 @@ impl PPU {
 
     if state.ppu.scanline >= 241 && state.ppu.scanline < 261 {
       if state.ppu.scanline == 241 && state.ppu.cycle == 1 {
-        // emulate a race condition in the PPU: reading the status register suppresses vblank and nmi next tick
+        // emulate a race condition in the PPU: reading the status register suppresses vblank next tick and nmi this tick
         if !state.ppu.status_register_read_last_tick {
           state.ppu.status.set_vertical_blank(true);
-          if state.ppu.control.enable_nmi() {
-            nmi_set = true;
-          }
+        }
+        if !state.ppu.status_register_read_this_tick && state.ppu.control.enable_nmi() {
+          nmi_set = true;
         }
       }
     }
-
-    state.ppu.status_register_read_last_tick = false;
 
     if state.ppu.cycle >= 1
       && state.ppu.scanline >= 0

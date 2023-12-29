@@ -12,7 +12,7 @@ impl PPU {
           (u8::from(machine.ppu.status) & 0b11100000) | (machine.ppu.data_buffer & 0b00011111);
         machine.ppu.status.set_vertical_blank(false);
         machine.ppu.address_latch = PPUAddressLatch::High;
-        machine.ppu.status_register_read_last_tick = true;
+        machine.ppu.status_register_read_this_tick = true;
       }
       PPURegister::PPUDATA => {
         result = machine.ppu.data_buffer;
