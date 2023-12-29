@@ -143,7 +143,7 @@ impl CPU {
   pub fn tick(state: &mut Machine) -> Option<ExecutedInstruction> {
     let prev_ppu_cycle = state.ppu.cycle;
     let prev_ppu_scanline = state.ppu.scanline;
-    let prev_cycle_count = state.cycle_count;
+    let prev_cycle_count = state.cpu_cycle_count;
     let prev_cpu = state.cpu.clone();
 
     if state.cpu.nmi_set {

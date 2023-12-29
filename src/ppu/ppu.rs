@@ -34,6 +34,7 @@ pub struct PPU {
   pub bg_shifter_pattern_high: u16,
   pub bg_shifter_attrib_low: u16,
   pub bg_shifter_attrib_high: u16,
+  pub frame_count: u64,
 }
 
 impl PPU {
@@ -60,6 +61,7 @@ impl PPU {
       bg_shifter_attrib_low: 0,
       bg_shifter_pattern_high: 0,
       bg_shifter_pattern_low: 0,
+      frame_count: 0,
     }
   }
 
@@ -67,9 +69,17 @@ impl PPU {
     let mut nmi_set = false;
 
     if state.ppu.scanline >= -1 && state.ppu.scanline < 240 {
-      if state.ppu.scanline == 0 && state.ppu.cycle == 0 {
+      if state.ppu.frame_count % 2 == 1 && state.ppu.scanline == 0 && state.ppu.cycle == 0 {
         // Odd frame cycle skip
-        state.ppu.cycle = 1;
+        if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
+          println!("Skipping cycle on frame {}", state.ppu.frame_count);
+          state.ppu.cycle = 1;
+        } else {
+          println!(
+            "Not skipping cycle on frame {} because rendering is disabled",
+            state.ppu.frame_count
+          );
+        }
       }
 
       if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
@@ -192,6 +202,7 @@ impl PPU {
       state.ppu.cycle = 0;
       state.ppu.scanline += 1;
       if state.ppu.scanline >= 261 {
+        state.ppu.frame_count += 1;
         state.ppu.scanline = -1;
       }
     }
