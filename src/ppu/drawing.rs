@@ -1,5 +1,5 @@
 use crate::{
-  gfx::crt_screen::{BYTES_PER_PIXEL, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
+  gui::{BYTES_PER_PIXEL, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
   machine::Machine,
   palette::PALETTE,
 };
