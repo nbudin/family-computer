@@ -69,104 +69,93 @@ impl PPU {
     }
   }
 
+  fn update_visible_scanline(state: &mut Machine) {
+    if state.ppu.frame_count % 2 == 1 && state.ppu.scanline == 0 && state.ppu.cycle == 0 {
+      // Odd frame cycle skip
+      if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
+        state.ppu.cycle = 1;
+      }
+    }
+
+    if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
+      state.ppu.status.set_vertical_blank(false);
+      state.ppu.status.set_sprite_zero_hit(false);
+      state.ppu.status.set_sprite_overflow(false);
+    }
+
+    if (state.ppu.cycle >= 2 && state.ppu.cycle < 258)
+      || (state.ppu.cycle >= 321 && state.ppu.cycle < 338)
+    {
+      state.ppu.update_shifters();
+
+      PPU::update_bg_registers(state);
+
+      if state.ppu.cycle == 256 {
+        state.ppu.increment_scroll_y();
+      }
+
+      if state.ppu.cycle == 257 {
+        state.ppu.load_background_shifters();
+        state.ppu.transfer_address_x();
+      }
+
+      if state.ppu.cycle == 338 || state.ppu.cycle == 340 {
+        // superfluous reads of tile id at end of scanline
+        state.ppu.bg_next_tile_id = state
+          .ppu
+          .get_ppu_mem(state, 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff));
+      }
+
+      if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
+        state.ppu.transfer_address_y();
+      }
+    }
+  }
+
+  fn draw_current_pixel(state: &mut Machine, pixbuf: &mut [u8; 245760]) {
+    // Pixel is in the visible range of the CRT
+    let mut color: [u8; 3] = [0, 0, 0];
+
+    if state.ppu.mask.render_background() {
+      color = state.ppu.get_current_pixel_bg_color(state);
+    }
+
+    state.ppu.set_pixel(
+      pixbuf,
+      color,
+      u32::try_from(state.ppu.cycle - 1).unwrap(),
+      u32::try_from(state.ppu.scanline).unwrap(),
+    );
+  }
+
+  fn update_cycle_and_scanline(state: &mut Machine) {
+    state.ppu.cycle += 1;
+    if state.ppu.cycle >= 341 {
+      state.ppu.cycle = 0;
+      state.ppu.scanline += 1;
+      if state.ppu.scanline >= 261 {
+        state.ppu.frame_count += 1;
+        state.ppu.scanline = -1;
+      }
+    }
+  }
+
   pub fn tick(state: &mut Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) -> bool {
     let mut nmi_set = false;
     state.ppu.status_register_read_last_tick = state.ppu.status_register_read_this_tick;
     state.ppu.status_register_read_this_tick = false;
 
     if state.ppu.scanline >= -1 && state.ppu.scanline < 240 {
-      if state.ppu.frame_count % 2 == 1 && state.ppu.scanline == 0 && state.ppu.cycle == 0 {
-        // Odd frame cycle skip
-        if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
-          // println!("Skipping cycle on frame {}", state.ppu.frame_count);
-          state.ppu.cycle = 1;
-        } else {
-          // println!(
-          //   "Not skipping cycle on frame {} because rendering is disabled",
-          //   state.ppu.frame_count
-          // );
-        }
-      }
+      PPU::update_visible_scanline(state);
+    }
 
-      if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
-        state.ppu.status.set_vertical_blank(false);
-        state.ppu.status.set_sprite_zero_hit(false);
-        state.ppu.status.set_sprite_overflow(false);
-      }
-
-      if (state.ppu.cycle >= 2 && state.ppu.cycle < 258)
-        || (state.ppu.cycle >= 321 && state.ppu.cycle < 338)
-      {
-        state.ppu.update_shifters();
-
-        match (state.ppu.cycle - 1) % 8 {
-          0 => {
-            state.ppu.load_background_shifters();
-            state.ppu.bg_next_tile_id = state
-              .ppu
-              .get_ppu_mem(state, 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff));
-          }
-          2 => {
-            state.ppu.bg_next_tile_attrib = state.ppu.get_ppu_mem(
-              state,
-              0x23c0
-                | (u16::from(state.ppu.vram_addr.nametable_y()) << 11)
-                | (u16::from(state.ppu.vram_addr.nametable_x()) << 10)
-                | ((state.ppu.vram_addr.coarse_y() as u16 >> 2) << 3)
-                | (state.ppu.vram_addr.coarse_x() as u16 >> 2),
-            );
-
-            if state.ppu.vram_addr.coarse_y() & 0x02 > 0 {
-              state.ppu.bg_next_tile_attrib >>= 4;
-            }
-            if state.ppu.vram_addr.coarse_x() & 0x02 > 0 {
-              state.ppu.bg_next_tile_attrib >>= 2;
-            }
-            state.ppu.bg_next_tile_attrib &= 0x03;
-          }
-          4 => {
-            state.ppu.bg_next_tile_low = state.ppu.get_ppu_mem(
-              state,
-              (u16::from(state.ppu.control.pattern_background()) << 12)
-                + ((state.ppu.bg_next_tile_id as u16) << 4)
-                + (state.ppu.vram_addr.fine_y() as u16),
-            )
-          }
-          6 => {
-            state.ppu.bg_next_tile_high = state.ppu.get_ppu_mem(
-              state,
-              (u16::from(state.ppu.control.pattern_background()) << 12)
-                + ((state.ppu.bg_next_tile_id as u16) << 4)
-                + (state.ppu.vram_addr.fine_y() as u16)
-                + 8,
-            )
-          }
-          7 => {
-            state.ppu.increment_scroll_x();
-          }
-          _ => {}
-        }
-
-        if state.ppu.cycle == 256 {
-          state.ppu.increment_scroll_y();
-        }
-
-        if state.ppu.cycle == 257 {
-          state.ppu.load_background_shifters();
-          state.ppu.transfer_address_x();
-        }
-
-        if state.ppu.cycle == 338 || state.ppu.cycle == 340 {
-          // superfluous reads of tile id at end of scanline
-          state.ppu.bg_next_tile_id = state
-            .ppu
-            .get_ppu_mem(state, 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff));
-        }
-
-        if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
-          state.ppu.transfer_address_y();
-        }
-      }
+    if state.ppu.cycle == 1 && state.ppu.scanline == -1 {
+      println!(
+        "v:{:04X} t:{:04X} x:{}",
+        u16::from(state.ppu.vram_addr),
+        u16::from(state.ppu.tram_addr),
+        state.ppu.fine_x
+      );
     }
 
     if state.ppu.scanline == 240 {
@@ -190,30 +179,10 @@ impl PPU {
       && state.ppu.cycle <= PIXEL_BUFFER_WIDTH as i32
       && state.ppu.scanline < PIXEL_BUFFER_HEIGHT as i32
     {
-      // Pixel is in the visible range of the CRT
-      let mut color: [u8; 3] = [0, 0, 0];
-
-      if state.ppu.mask.render_background() {
-        color = state.ppu.get_current_pixel_bg_color(state);
-      }
-
-      state.ppu.set_pixel(
-        pixbuf,
-        color,
-        u32::try_from(state.ppu.cycle - 1).unwrap(),
-        u32::try_from(state.ppu.scanline).unwrap(),
-      );
+      PPU::draw_current_pixel(state, pixbuf);
     }
 
-    state.ppu.cycle += 1;
-    if state.ppu.cycle >= 341 {
-      state.ppu.cycle = 0;
-      state.ppu.scanline += 1;
-      if state.ppu.scanline >= 261 {
-        state.ppu.frame_count += 1;
-        state.ppu.scanline = -1;
-      }
-    }
+    PPU::update_cycle_and_scanline(state);
 
     nmi_set
   }

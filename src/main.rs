@@ -58,6 +58,15 @@ pub async fn run() -> Result<(), EventLoopError> {
 
   let mut prev_time = std::time::Instant::now();
 
+  enum EmulatorState {
+    Run,
+    Pause,
+    RunUntilNextFrame,
+    RunUntilNextInstruction,
+  }
+
+  let mut emulator_state: EmulatorState = EmulatorState::Pause;
+
   event_loop.set_control_flow(ControlFlow::Poll);
 
   event_loop.run(|event, target| {
@@ -65,17 +74,43 @@ pub async fn run() -> Result<(), EventLoopError> {
     wasm::log_event(&log_list, &event);
 
     match event {
-      Event::AboutToWait => {
-        gfx_state.root.update_pixbuf(|pixbuf| {
-          machine.execute_frame(pixbuf);
-        });
+      Event::AboutToWait => match emulator_state {
+        EmulatorState::Run => {
+          gfx_state.root.update_pixbuf(|pixbuf| {
+            machine.execute_frame(pixbuf);
+          });
 
-        let sleepy_time =
-          (prev_time + Duration::from_secs_f32(FRAME_DURATION_SECS)) - std::time::Instant::now();
-        std::thread::sleep(sleepy_time);
+          let sleepy_time =
+            (prev_time + Duration::from_secs_f32(FRAME_DURATION_SECS)) - std::time::Instant::now();
+          std::thread::sleep(sleepy_time);
 
-        gfx_state.window().request_redraw();
-      }
+          gfx_state.window().request_redraw();
+        }
+        EmulatorState::Pause => {
+          target.set_control_flow(ControlFlow::Wait);
+        }
+        EmulatorState::RunUntilNextFrame => {
+          gfx_state.root.update_pixbuf(|pixbuf| {
+            machine.execute_frame(pixbuf);
+          });
+
+          gfx_state.window().request_redraw();
+          emulator_state = EmulatorState::Pause;
+        }
+        EmulatorState::RunUntilNextInstruction => {
+          let start_cycles = machine.cpu_cycle_count;
+          gfx_state.root.update_pixbuf(|pixbuf| loop {
+            machine.tick(pixbuf);
+
+            if machine.cpu_cycle_count > start_cycles {
+              break;
+            }
+          });
+
+          gfx_state.window().request_redraw();
+          emulator_state = EmulatorState::Pause;
+        }
+      },
       Event::WindowEvent { window_id, event } if window_id == gfx_state.window().id() => {
         match event {
           WindowEvent::CloseRequested => {
@@ -116,6 +151,27 @@ pub async fn run() -> Result<(), EventLoopError> {
                   let mut dumpfile = File::create("memorydump.bin").unwrap();
                   dumpfile.write(&machine.work_ram).unwrap();
                   println!("Wrote memory to dumpfile.bin");
+                }
+              }
+              "i" => {
+                if event.state.is_pressed() {
+                  emulator_state = EmulatorState::RunUntilNextInstruction;
+                }
+              }
+              "r" => {
+                if event.state.is_pressed() {
+                  emulator_state = EmulatorState::Run;
+                  target.set_control_flow(ControlFlow::Poll);
+                }
+              }
+              "p" => {
+                if event.state.is_pressed() {
+                  emulator_state = EmulatorState::Pause;
+                }
+              }
+              "f" => {
+                if event.state.is_pressed() {
+                  emulator_state = EmulatorState::RunUntilNextFrame;
                 }
               }
               _ => {}

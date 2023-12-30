@@ -1,3 +1,5 @@
+use crate::machine::Machine;
+
 use super::PPU;
 
 impl PPU {
@@ -75,6 +77,56 @@ impl PPU {
       self.bg_shifter_pattern_low <<= 1;
       self.bg_shifter_attrib_high <<= 1;
       self.bg_shifter_attrib_low <<= 1;
+    }
+  }
+
+  pub fn update_bg_registers(state: &mut Machine) {
+    match (state.ppu.cycle - 1) % 8 {
+      0 => {
+        state.ppu.load_background_shifters();
+        state.ppu.bg_next_tile_id = state
+          .ppu
+          .get_ppu_mem(state, 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff));
+      }
+      2 => {
+        state.ppu.bg_next_tile_attrib = state.ppu.get_ppu_mem(
+          state,
+          0x23c0
+            | (u16::from(state.ppu.vram_addr.nametable_y()) << 11)
+            | (u16::from(state.ppu.vram_addr.nametable_x()) << 10)
+            | ((state.ppu.vram_addr.coarse_y() as u16 >> 2) << 3)
+            | (state.ppu.vram_addr.coarse_x() as u16 >> 2),
+        );
+
+        if state.ppu.vram_addr.coarse_y() & 0x02 > 0 {
+          state.ppu.bg_next_tile_attrib >>= 4;
+        }
+        if state.ppu.vram_addr.coarse_x() & 0x02 > 0 {
+          state.ppu.bg_next_tile_attrib >>= 2;
+        }
+        state.ppu.bg_next_tile_attrib &= 0x03;
+      }
+      4 => {
+        state.ppu.bg_next_tile_low = state.ppu.get_ppu_mem(
+          state,
+          (u16::from(state.ppu.control.pattern_background()) << 12)
+            + ((state.ppu.bg_next_tile_id as u16) << 4)
+            + (state.ppu.vram_addr.fine_y() as u16),
+        )
+      }
+      6 => {
+        state.ppu.bg_next_tile_high = state.ppu.get_ppu_mem(
+          state,
+          (u16::from(state.ppu.control.pattern_background()) << 12)
+            + ((state.ppu.bg_next_tile_id as u16) << 4)
+            + (state.ppu.vram_addr.fine_y() as u16)
+            + 8,
+        )
+      }
+      7 => {
+        state.ppu.increment_scroll_x();
+      }
+      _ => {}
     }
   }
 }

@@ -15,7 +15,7 @@
           "kind": "bin"
         }
       },
-      "args": ["smoketest/nestest.nes"],
+      "args": ["dk.nes"],
       "cwd": "${workspaceFolder}",
       "env": {
         "CPU_VERBOSE": "1"

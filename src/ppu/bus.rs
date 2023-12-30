@@ -90,7 +90,7 @@ impl PPU {
       PPURegister::PPUADDR => match machine.ppu.address_latch {
         PPUAddressLatch::High => {
           machine.ppu.tram_addr = PPULoopyRegister::from(
-            (u16::from(machine.ppu.tram_addr) & 0x00ff) | (u16::from(value) << 8),
+            ((u16::from(value) & 0x003f) << 8) | (u16::from(machine.ppu.tram_addr) & 0x00ff),
           );
           machine.ppu.address_latch = PPUAddressLatch::Low;
         }

@@ -103,7 +103,7 @@ impl Machine {
     loop {
       self.tick(pixbuf);
 
-      if self.ppu.cycle == 0 && self.ppu.scanline == 0 {
+      if self.ppu.cycle == 1 && self.ppu.scanline == -1 {
         // println!("PPU cycles: {}", self.ppu_cycle_count);
         // panic!("O noes i am ded");
         break;
@@ -157,7 +157,9 @@ impl Machine {
   }
 
   pub fn get_cpu_mem_readonly(&self, addr: u16) -> u8 {
-    if addr < 0x2000 {
+    if let Some(value) = self.cartridge.get_cpu_mem(addr) {
+      value
+    } else if addr < 0x2000 {
       let actual_address = addr % 0x800;
       self.work_ram[usize::from(actual_address)]
     } else if addr < 0x4000 {
@@ -172,12 +174,14 @@ impl Machine {
       // TODO: CPU test mode
       0
     } else {
-      self.cartridge.get_cpu_mem(addr)
+      0
     }
   }
 
   pub fn get_cpu_mem(&mut self, addr: u16) -> u8 {
-    if addr < 0x2000 {
+    if let Some(value) = self.cartridge.get_cpu_mem(addr) {
+      value
+    } else if addr < 0x2000 {
       let actual_address = addr % 0x800;
       self.work_ram[usize::from(actual_address)]
     } else if addr < 0x4000 {
@@ -192,12 +196,14 @@ impl Machine {
       // TODO: CPU test mode
       0
     } else {
-      self.cartridge.get_cpu_mem(addr)
+      0
     }
   }
 
   pub fn set_cpu_mem(&mut self, addr: u16, value: u8) {
-    if addr < 0x2000 {
+    if self.cartridge.set_cpu_mem(addr, value) {
+      // cartridge intercepted it
+    } else if addr < 0x2000 {
       let actual_address = addr % 0x800;
       self.work_ram[usize::from(actual_address)] = value;
     } else if addr < 0x4000 {
@@ -212,8 +218,6 @@ impl Machine {
     } else if addr < 0x4020 {
       // TODO: CPU test mode
       ()
-    } else {
-      self.cartridge.set_cpu_mem(addr, value)
     }
   }
 }
