@@ -1,7 +1,4 @@
-use std::{
-  f32::consts::PI,
-  time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use iced::{
   executor,
