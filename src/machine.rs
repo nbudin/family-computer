@@ -9,7 +9,7 @@ use crate::{
   cartridge::{load_cartridge, BoxCartridge},
   controller::Controller,
   cpu::{ExecutedInstruction, CPU},
-  gfx::crt_screen::PIXEL_BUFFER_SIZE,
+  gui::PIXEL_BUFFER_SIZE,
   ines_rom::INESRom,
   ppu::{PPURegister, PPU},
 };

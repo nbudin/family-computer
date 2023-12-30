@@ -1,5 +1,5 @@
 use crate::{
-  gfx::crt_screen::{PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
+  gui::{PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
   machine::Machine,
 };
 

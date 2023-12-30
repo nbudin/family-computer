@@ -44,7 +44,7 @@ mod tests {
   }
 
   use crate::{
-    gfx::crt_screen::PIXEL_BUFFER_SIZE,
+    gui::PIXEL_BUFFER_SIZE,
     ines_rom::INESRom,
     machine::{DisassemblyWriter, Machine},
   };

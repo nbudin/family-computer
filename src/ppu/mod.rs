@@ -12,7 +12,7 @@ pub use registers::*;
 mod tests {
   use std::io::BufReader;
 
-  use crate::{gfx::crt_screen::PIXEL_BUFFER_SIZE, ines_rom::INESRom, machine::Machine};
+  use crate::{gui::PIXEL_BUFFER_SIZE, ines_rom::INESRom, machine::Machine};
 
   fn run_blargg_ppu_test(rom_data: &[u8]) -> u8 {
     let rom = INESRom::from_reader(&mut BufReader::new(&rom_data[..])).unwrap();

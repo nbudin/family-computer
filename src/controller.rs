@@ -12,6 +12,18 @@ pub struct ControllerState {
   pub a: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ControllerButton {
+  Right,
+  Left,
+  Down,
+  Up,
+  Start,
+  Select,
+  B,
+  A,
+}
+
 #[derive(Clone, Debug)]
 pub struct Controller {
   pub state: ControllerState,
@@ -23,6 +35,19 @@ impl Controller {
     Self {
       state: ControllerState::new(),
       shift_register: 0,
+    }
+  }
+
+  pub fn set_button_state(&mut self, button: ControllerButton, pressed: bool) {
+    match button {
+      ControllerButton::Right => self.state.set_right(pressed),
+      ControllerButton::Left => self.state.set_left(pressed),
+      ControllerButton::Down => self.state.set_down(pressed),
+      ControllerButton::Up => self.state.set_up(pressed),
+      ControllerButton::Start => self.state.set_start(pressed),
+      ControllerButton::Select => self.state.set_select(pressed),
+      ControllerButton::B => self.state.set_b(pressed),
+      ControllerButton::A => self.state.set_a(pressed),
     }
   }
 
