@@ -1,8 +1,22 @@
 use std::fmt::Debug;
 
+use bitfield_struct::bitfield;
+
 use crate::machine::Machine;
 
 use super::{ExecutedInstruction, Instruction, Operand};
+
+#[bitfield(u8)]
+pub struct CPUStatusRegister {
+  carry_flag: bool,
+  zero_flag: bool,
+  interrupt_disable: bool,
+  decimal_flag: bool,
+  break_flag: bool,
+  unused: bool,
+  overflow_flag: bool,
+  negative_flag: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct CPU {
@@ -12,15 +26,7 @@ pub struct CPU {
   pub x: u8,
   pub y: u8,
   pub s: u8,
-
-  pub negative_flag: bool,
-  pub overflow_flag: bool,
-  pub unused_flag: bool,
-  pub break_flag: bool,
-  pub decimal_flag: bool,
-  pub interrupt_flag: bool,
-  pub zero_flag: bool,
-  pub carry_flag: bool,
+  pub p: CPUStatusRegister,
 
   pub nmi_set: bool,
   pub irq_set: bool,
@@ -30,14 +36,9 @@ impl CPU {
   pub fn new() -> Self {
     Self {
       wait_cycles: 0,
-      interrupt_flag: true,
-      unused_flag: true,
-      carry_flag: false,
-      decimal_flag: false,
-      overflow_flag: false,
-      negative_flag: false,
-      break_flag: false,
-      zero_flag: false,
+      p: CPUStatusRegister::from(0)
+        .with_interrupt_disable(true)
+        .with_unused(true),
       pc: 0xc000,
       a: 0,
       x: 0,
@@ -46,28 +47,6 @@ impl CPU {
       nmi_set: false,
       irq_set: false,
     }
-  }
-
-  pub fn get_status_register(&self) -> u8 {
-    (if self.negative_flag { 1 << 7 } else { 0 })
-      + (if self.overflow_flag { 1 << 6 } else { 0 })
-      + (if self.unused_flag { 1 << 5 } else { 0 })
-      + (if self.break_flag { 1 << 4 } else { 0 })
-      + (if self.decimal_flag { 1 << 3 } else { 0 })
-      + (if self.interrupt_flag { 1 << 2 } else { 0 })
-      + (if self.zero_flag { 1 << 1 } else { 0 })
-      + (if self.carry_flag { 1 } else { 0 })
-  }
-
-  pub fn set_status_register(&mut self, value: u8) {
-    self.negative_flag = (value & (1 << 7)) > 0;
-    self.overflow_flag = (value & (1 << 6)) > 0;
-    self.unused_flag = (value & (1 << 5)) > 0;
-    self.break_flag = (value & (1 << 4)) > 0;
-    self.decimal_flag = (value & (1 << 3)) > 0;
-    self.interrupt_flag = (value & (1 << 2)) > 0;
-    self.zero_flag = (value & (1 << 1)) > 0;
-    self.carry_flag = (value & 1) > 0;
   }
 
   pub fn set_operand(op: &Operand, value: u8, state: &mut Machine) {
@@ -134,8 +113,7 @@ impl CPU {
     state.cpu.x = 0;
     state.cpu.y = 0;
     state.cpu.s = 0xfd;
-    state.cpu.set_status_register(0);
-    state.cpu.unused_flag = true;
+    state.cpu.p = CPUStatusRegister::from(0).with_unused(true);
 
     state.cpu.wait_cycles = 7;
   }
@@ -149,10 +127,10 @@ impl CPU {
     if state.cpu.nmi_set {
       CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
       CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
-      state.cpu.break_flag = false;
-      state.cpu.interrupt_flag = true;
-      state.cpu.unused_flag = true;
-      CPU::push_stack(state.cpu.get_status_register(), state);
+      state.cpu.p.set_break_flag(false);
+      state.cpu.p.set_interrupt_disable(true);
+      state.cpu.p.set_unused(true);
+      CPU::push_stack(state.cpu.p.into(), state);
 
       let low = state.get_cpu_mem(0xfffa);
       let high = state.get_cpu_mem(0xfffb);
@@ -170,13 +148,13 @@ impl CPU {
       return None;
     }
 
-    if state.cpu.irq_set && !state.cpu.interrupt_flag {
+    if state.cpu.irq_set && !state.cpu.p.interrupt_disable() {
       CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
       CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
-      CPU::push_stack(state.cpu.get_status_register(), state);
-      state.cpu.break_flag = false;
-      state.cpu.interrupt_flag = true;
-      state.cpu.unused_flag = true;
+      CPU::push_stack(state.cpu.p.into(), state);
+      state.cpu.p.set_break_flag(false);
+      state.cpu.p.set_interrupt_disable(true);
+      state.cpu.p.set_unused(true);
 
       let low = state.get_cpu_mem(0xfffe);
       let high = state.get_cpu_mem(0xffff);
@@ -188,7 +166,7 @@ impl CPU {
       return None;
     }
 
-    state.cpu.unused_flag = true;
+    state.cpu.p.set_unused(true);
 
     let (instruction, opcode) = Instruction::load_instruction(state);
     state.cpu.wait_cycles = instruction.base_cycles() - 1;
@@ -218,13 +196,14 @@ impl CPU {
           state.cpu.wait_cycles += 1;
         }
 
-        let result = state.cpu.a as u16 + value as u16 + if state.cpu.carry_flag { 1 } else { 0 };
-        state.cpu.overflow_flag =
-          (!(state.cpu.a ^ value) & (state.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0;
-        state.cpu.carry_flag = result > 255;
+        let result = state.cpu.a as u16 + value as u16 + state.cpu.p.carry_flag() as u16;
+        state.cpu.p.set_overflow_flag(
+          (!(state.cpu.a ^ value) & (state.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0,
+        );
+        state.cpu.p.set_carry_flag(result > 255);
         state.cpu.a = u8::try_from(result & 0xff).unwrap();
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = state.cpu.a & 0b10000000 > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state.cpu.p.set_negative_flag(state.cpu.a & 0b10000000 > 0);
       }
 
       Instruction::AND(op) => {
@@ -233,21 +212,21 @@ impl CPU {
           state.cpu.wait_cycles += 1;
         }
         state.cpu.a &= value;
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = (state.cpu.a & (1 << 7)) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state.cpu.p.set_negative_flag((state.cpu.a & (1 << 7)) > 0);
       }
 
       Instruction::ASL(op) => {
         let (value, _) = op.eval(state);
         let result = value << 1;
         CPU::set_operand(&op, result, state);
-        state.cpu.carry_flag = value & 0b10000000 > 0;
-        state.cpu.negative_flag = result & 0b10000000 > 0;
-        state.cpu.zero_flag = result == 0;
+        state.cpu.p.set_carry_flag(value & 0b10000000 > 0);
+        state.cpu.p.set_negative_flag(result & 0b10000000 > 0);
+        state.cpu.p.set_zero_flag(result == 0);
       }
 
       Instruction::BCC(addr) => {
-        if !state.cpu.carry_flag {
+        if !state.cpu.p.carry_flag() {
           state.cpu.wait_cycles += 1;
           if CPU::set_pc(&addr, state) {
             state.cpu.wait_cycles += 1;
@@ -256,7 +235,7 @@ impl CPU {
       }
 
       Instruction::BCS(addr) => {
-        if state.cpu.carry_flag {
+        if state.cpu.p.carry_flag() {
           state.cpu.wait_cycles += 1;
           if CPU::set_pc(&addr, state) {
             state.cpu.wait_cycles += 1;
@@ -265,7 +244,7 @@ impl CPU {
       }
 
       Instruction::BEQ(addr) => {
-        if state.cpu.zero_flag {
+        if state.cpu.p.zero_flag() {
           state.cpu.wait_cycles += 1;
           if CPU::set_pc(&addr, state) {
             state.cpu.wait_cycles += 1;
@@ -275,13 +254,13 @@ impl CPU {
 
       Instruction::BIT(addr) => {
         let (value, _) = addr.eval(state);
-        state.cpu.zero_flag = (value & state.cpu.a) == 0;
-        state.cpu.overflow_flag = (value & (1 << 6)) > 0;
-        state.cpu.negative_flag = (value & (1 << 7)) > 0;
+        state.cpu.p.set_zero_flag((value & state.cpu.a) == 0);
+        state.cpu.p.set_overflow_flag((value & (1 << 6)) > 0);
+        state.cpu.p.set_negative_flag((value & (1 << 7)) > 0);
       }
 
       Instruction::BMI(addr) => {
-        if state.cpu.negative_flag {
+        if state.cpu.p.negative_flag() {
           state.cpu.wait_cycles += 1;
           if CPU::set_pc(&addr, state) {
             state.cpu.wait_cycles += 1;
@@ -290,7 +269,7 @@ impl CPU {
       }
 
       Instruction::BNE(addr) => {
-        if !state.cpu.zero_flag {
+        if !state.cpu.p.zero_flag() {
           state.cpu.wait_cycles += 1;
           if CPU::set_pc(&addr, state) {
             state.cpu.wait_cycles += 1;
@@ -299,7 +278,7 @@ impl CPU {
       }
 
       Instruction::BPL(addr) => {
-        if !state.cpu.negative_flag {
+        if !state.cpu.p.negative_flag() {
           state.cpu.wait_cycles += 1;
           if CPU::set_pc(&addr, state) {
             state.cpu.wait_cycles += 1;
@@ -310,8 +289,8 @@ impl CPU {
       Instruction::BRK => {
         CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
         CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
-        state.cpu.break_flag = true;
-        CPU::push_stack(state.cpu.get_status_register(), state);
+        state.cpu.p.set_break_flag(true);
+        CPU::push_stack(state.cpu.p.into(), state);
 
         let low = state.get_cpu_mem(0xfffe);
         let high = state.get_cpu_mem(0xffff);
@@ -323,7 +302,7 @@ impl CPU {
       }
 
       Instruction::BVC(addr) => {
-        if !state.cpu.overflow_flag {
+        if !state.cpu.p.overflow_flag() {
           state.cpu.wait_cycles += 1;
           if CPU::set_pc(&addr, state) {
             state.cpu.wait_cycles += 1;
@@ -332,7 +311,7 @@ impl CPU {
       }
 
       Instruction::BVS(addr) => {
-        if state.cpu.overflow_flag {
+        if state.cpu.p.overflow_flag() {
           state.cpu.wait_cycles += 1;
           if CPU::set_pc(&addr, state) {
             state.cpu.wait_cycles += 1;
@@ -341,19 +320,19 @@ impl CPU {
       }
 
       Instruction::CLC => {
-        state.cpu.carry_flag = false;
+        state.cpu.p.set_carry_flag(false);
       }
 
       Instruction::CLD => {
-        state.cpu.decimal_flag = false;
+        state.cpu.p.set_decimal_flag(false);
       }
 
       Instruction::CLI => {
-        state.cpu.interrupt_flag = false;
+        state.cpu.p.set_interrupt_disable(false);
       }
 
       Instruction::CLV => {
-        state.cpu.overflow_flag = false;
+        state.cpu.p.set_overflow_flag(false);
       }
 
       Instruction::CMP(ref op) => {
@@ -361,25 +340,34 @@ impl CPU {
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           state.cpu.wait_cycles += 1;
         }
-        state.cpu.carry_flag = state.cpu.a >= value;
-        state.cpu.zero_flag = state.cpu.a == value;
-        state.cpu.negative_flag = (state.cpu.a.wrapping_sub(value) & 0b10000000) > 0;
+        state.cpu.p.set_carry_flag(state.cpu.a >= value);
+        state.cpu.p.set_zero_flag(state.cpu.a == value);
+        state
+          .cpu
+          .p
+          .set_negative_flag((state.cpu.a.wrapping_sub(value) & 0b10000000) > 0);
       }
 
       Instruction::CPX(op) => {
         let (value, _) = op.eval(state);
         let x = state.cpu.x;
-        state.cpu.carry_flag = x >= value;
-        state.cpu.zero_flag = x == value;
-        state.cpu.negative_flag = (x.wrapping_sub(value) & 0b10000000) > 0;
+        state.cpu.p.set_carry_flag(x >= value);
+        state.cpu.p.set_zero_flag(x == value);
+        state
+          .cpu
+          .p
+          .set_negative_flag((x.wrapping_sub(value) & 0b10000000) > 0);
       }
 
       Instruction::CPY(op) => {
         let (value, _) = op.eval(state);
         let y = state.cpu.y;
-        state.cpu.carry_flag = y >= value;
-        state.cpu.zero_flag = y == value;
-        state.cpu.negative_flag = (y.wrapping_sub(value) & 0b10000000) > 0;
+        state.cpu.p.set_carry_flag(y >= value);
+        state.cpu.p.set_zero_flag(y == value);
+        state
+          .cpu
+          .p
+          .set_negative_flag((y.wrapping_sub(value) & 0b10000000) > 0);
       }
 
       Instruction::DCP(op) => {
@@ -390,24 +378,24 @@ impl CPU {
       Instruction::DEC(op) => {
         let value = op.eval(state).0.wrapping_sub(1);
         CPU::set_operand(&op, value, state);
-        state.cpu.zero_flag = value == 0;
-        state.cpu.negative_flag = (value & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(value == 0);
+        state.cpu.p.set_negative_flag((value & 0b10000000) > 0);
       }
 
       Instruction::DEX => {
         state.cpu.x = state.cpu.x.wrapping_sub(1);
 
         let x = state.cpu.x;
-        state.cpu.zero_flag = x == 0;
-        state.cpu.negative_flag = (x & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(x == 0);
+        state.cpu.p.set_negative_flag((x & 0b10000000) > 0);
       }
 
       Instruction::DEY => {
         state.cpu.y = state.cpu.y.wrapping_sub(1);
 
         let y = state.cpu.y;
-        state.cpu.zero_flag = y == 0;
-        state.cpu.negative_flag = (y & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(y == 0);
+        state.cpu.p.set_negative_flag((y & 0b10000000) > 0);
       }
 
       Instruction::EOR(op) => {
@@ -417,29 +405,32 @@ impl CPU {
         }
 
         state.cpu.a ^= value;
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = state.cpu.a & 0b10000000 > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state.cpu.p.set_negative_flag(state.cpu.a & 0b10000000 > 0);
       }
 
       Instruction::INC(op) => {
         let value = op.eval(state).0.wrapping_add(1);
         CPU::set_operand(&op, value, state);
-        state.cpu.zero_flag = value == 0;
-        state.cpu.negative_flag = (value & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(value == 0);
+        state.cpu.p.set_negative_flag((value & 0b10000000) > 0);
       }
 
       Instruction::INX => {
         state.cpu.x = state.cpu.x.wrapping_add(1);
 
         let x = state.cpu.x;
-        state.cpu.zero_flag = x == 0;
-        state.cpu.negative_flag = (x & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(x == 0);
+        state.cpu.p.set_negative_flag((x & 0b10000000) > 0);
       }
 
       Instruction::INY => {
         state.cpu.y = state.cpu.y.wrapping_add(1);
-        state.cpu.zero_flag = state.cpu.y == 0;
-        state.cpu.negative_flag = (state.cpu.y & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.y == 0);
+        state
+          .cpu
+          .p
+          .set_negative_flag((state.cpu.y & 0b10000000) > 0);
       }
 
       Instruction::ISB(op) => {
@@ -471,8 +462,11 @@ impl CPU {
           state.cpu.wait_cycles += 1;
         }
         state.cpu.a = value;
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = (state.cpu.a & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state
+          .cpu
+          .p
+          .set_negative_flag((state.cpu.a & 0b10000000) > 0);
       }
 
       Instruction::LDX(addr) => {
@@ -481,8 +475,11 @@ impl CPU {
           state.cpu.wait_cycles += 1;
         }
         state.cpu.x = value;
-        state.cpu.zero_flag = state.cpu.x == 0;
-        state.cpu.negative_flag = (state.cpu.x & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.x == 0);
+        state
+          .cpu
+          .p
+          .set_negative_flag((state.cpu.x & 0b10000000) > 0);
       }
 
       Instruction::LDY(addr) => {
@@ -491,17 +488,20 @@ impl CPU {
           state.cpu.wait_cycles += 1;
         }
         state.cpu.y = value;
-        state.cpu.zero_flag = state.cpu.y == 0;
-        state.cpu.negative_flag = (state.cpu.y & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.y == 0);
+        state
+          .cpu
+          .p
+          .set_negative_flag((state.cpu.y & 0b10000000) > 0);
       }
 
       Instruction::LSR(op) => {
         let (value, _) = op.eval(state);
         let result = value >> 1;
         CPU::set_operand(&op, result, state);
-        state.cpu.carry_flag = value & 0b1 == 1;
-        state.cpu.zero_flag = result == 0;
-        state.cpu.negative_flag = false; // always false because we always put a 0 into bit 7
+        state.cpu.p.set_carry_flag(value & 0b1 == 1);
+        state.cpu.p.set_zero_flag(result == 0);
+        state.cpu.p.set_negative_flag(false); // always false because we always put a 0 into bit 7
       }
 
       Instruction::NOP => {}
@@ -512,8 +512,8 @@ impl CPU {
           state.cpu.wait_cycles += 1;
         }
         state.cpu.a = state.cpu.a | value;
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = (state.cpu.a & (1 << 7)) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state.cpu.p.set_negative_flag((state.cpu.a & (1 << 7)) > 0);
       }
 
       Instruction::PHA => {
@@ -521,24 +521,27 @@ impl CPU {
       }
 
       Instruction::PHP => {
-        let prev_break_flag = state.cpu.break_flag;
-        state.cpu.break_flag = true;
-        CPU::push_stack(state.cpu.get_status_register(), state);
-        state.cpu.break_flag = prev_break_flag;
+        let prev_break_flag = state.cpu.p.break_flag();
+        state.cpu.p.set_break_flag(true);
+        CPU::push_stack(state.cpu.p.into(), state);
+        state.cpu.p.set_break_flag(prev_break_flag);
       }
 
       Instruction::PLA => {
         state.cpu.a = CPU::pull_stack(state);
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = (state.cpu.a & 0b10000000) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state
+          .cpu
+          .p
+          .set_negative_flag((state.cpu.a & 0b10000000) > 0);
       }
 
       Instruction::PLP => {
-        let prev_break_flag = state.cpu.break_flag;
+        let prev_break_flag = state.cpu.p.break_flag();
         let value = CPU::pull_stack(state);
-        state.cpu.set_status_register(value);
-        state.cpu.break_flag = prev_break_flag;
-        state.cpu.unused_flag = true;
+        state.cpu.p = value.into();
+        state.cpu.p.set_break_flag(prev_break_flag);
+        state.cpu.p.set_unused(true);
       }
 
       Instruction::RLA(op) => {
@@ -553,26 +556,26 @@ impl CPU {
 
       Instruction::ROL(op) => {
         let (value, _) = op.eval(state);
-        let result = value << 1 | (if state.cpu.carry_flag { 1 } else { 0 });
+        let result = value << 1 | (state.cpu.p.carry_flag() as u8);
         CPU::set_operand(&op, result, state);
-        state.cpu.carry_flag = value & 0b10000000 > 0;
-        state.cpu.negative_flag = result & 0b10000000 > 0;
-        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.p.set_carry_flag(value & 0b10000000 > 0);
+        state.cpu.p.set_negative_flag(result & 0b10000000 > 0);
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
       }
 
       Instruction::ROR(op) => {
         let (value, _) = op.eval(state);
-        let result = value >> 1 | (if state.cpu.carry_flag { 0b10000000 } else { 0 });
+        let result = value >> 1 | ((state.cpu.p.carry_flag() as u8) << 7);
         CPU::set_operand(&op, result, state);
-        state.cpu.carry_flag = value & 0b1 > 0;
-        state.cpu.negative_flag = result & 0b10000000 > 0;
-        state.cpu.zero_flag = state.cpu.a == 0;
+        state.cpu.p.set_carry_flag(value & 0b1 > 0);
+        state.cpu.p.set_negative_flag(result & 0b10000000 > 0);
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
       }
 
       Instruction::RTI => {
         let status = CPU::pull_stack(state);
-        state.cpu.set_status_register(status);
-        state.cpu.unused_flag = true;
+        state.cpu.p = status.into();
+        state.cpu.p.set_unused(true);
         let low = CPU::pull_stack(state);
         let high = CPU::pull_stack(state);
         CPU::set_pc(
@@ -603,25 +606,26 @@ impl CPU {
         // invert the bottom 8 bits and then do addition as in ADC
         let value = value ^ 0xff;
 
-        let result = state.cpu.a as u16 + value as u16 + if state.cpu.carry_flag { 1 } else { 0 };
-        state.cpu.overflow_flag =
-          (!(state.cpu.a ^ value) & (state.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0;
-        state.cpu.carry_flag = result > 255;
+        let result = state.cpu.a as u16 + value as u16 + state.cpu.p.carry_flag() as u16;
+        state.cpu.p.set_overflow_flag(
+          (!(state.cpu.a ^ value) & (state.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0,
+        );
+        state.cpu.p.set_carry_flag(result > 255);
         state.cpu.a = u8::try_from(result & 0xff).unwrap();
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = state.cpu.a & 0b10000000 > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state.cpu.p.set_negative_flag(state.cpu.a & 0b10000000 > 0);
       }
 
       Instruction::SEC => {
-        state.cpu.carry_flag = true;
+        state.cpu.p.set_carry_flag(true);
       }
 
       Instruction::SED => {
-        state.cpu.decimal_flag = true;
+        state.cpu.p.set_decimal_flag(true);
       }
 
       Instruction::SEI => {
-        state.cpu.interrupt_flag = true;
+        state.cpu.p.set_interrupt_disable(true);
       }
 
       Instruction::SLO(op) => {
@@ -648,26 +652,26 @@ impl CPU {
 
       Instruction::TAX => {
         state.cpu.x = state.cpu.a;
-        state.cpu.zero_flag = state.cpu.x == 0;
-        state.cpu.negative_flag = (state.cpu.x & (1 << 7)) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.x == 0);
+        state.cpu.p.set_negative_flag((state.cpu.x & (1 << 7)) > 0);
       }
 
       Instruction::TAY => {
         state.cpu.y = state.cpu.a;
-        state.cpu.zero_flag = state.cpu.y == 0;
-        state.cpu.negative_flag = (state.cpu.y & (1 << 7)) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.y == 0);
+        state.cpu.p.set_negative_flag((state.cpu.y & (1 << 7)) > 0);
       }
 
       Instruction::TSX => {
         state.cpu.x = state.cpu.s;
-        state.cpu.zero_flag = state.cpu.x == 0;
-        state.cpu.negative_flag = (state.cpu.x & (1 << 7)) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.x == 0);
+        state.cpu.p.set_negative_flag((state.cpu.x & (1 << 7)) > 0);
       }
 
       Instruction::TXA => {
         state.cpu.a = state.cpu.x;
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = (state.cpu.a & (1 << 7)) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state.cpu.p.set_negative_flag((state.cpu.a & (1 << 7)) > 0);
       }
 
       Instruction::TXS => {
@@ -676,8 +680,8 @@ impl CPU {
 
       Instruction::TYA => {
         state.cpu.a = state.cpu.y;
-        state.cpu.zero_flag = state.cpu.a == 0;
-        state.cpu.negative_flag = (state.cpu.a & (1 << 7)) > 0;
+        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        state.cpu.p.set_negative_flag((state.cpu.a & (1 << 7)) > 0);
       }
 
       Instruction::Illegal(instruction, op) => {

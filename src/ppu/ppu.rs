@@ -149,15 +149,6 @@ impl PPU {
       PPU::update_visible_scanline(state);
     }
 
-    if state.ppu.cycle == 1 && state.ppu.scanline == -1 {
-      println!(
-        "v:{:04X} t:{:04X} x:{}",
-        u16::from(state.ppu.vram_addr),
-        u16::from(state.ppu.tram_addr),
-        state.ppu.fine_x
-      );
-    }
-
     if state.ppu.scanline == 240 {
       // post render scanline - do nothing
     }

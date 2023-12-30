@@ -40,7 +40,7 @@ impl ExecutedInstruction {
       self.prev_cpu.a,
       self.prev_cpu.x,
       self.prev_cpu.y,
-      self.prev_cpu.get_status_register(),
+      u8::from(self.prev_cpu.p),
       self.prev_cpu.s,
       self.scanline,
       self.cycle,

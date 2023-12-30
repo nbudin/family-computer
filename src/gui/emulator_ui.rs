@@ -191,7 +191,7 @@ impl Application for EmulatorUI {
         self.machine.cpu.a,
         self.machine.cpu.x,
         self.machine.cpu.y,
-        self.machine.cpu.get_status_register(),
+        u8::from(self.machine.cpu.p),
         self.machine.cpu.s
       )
       .as_str(),
