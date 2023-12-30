@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+  f32::consts::PI,
+  time::{Duration, Instant},
+};
 
 use iced::{
   executor,
@@ -178,15 +181,28 @@ impl Application for EmulatorUI {
   }
 
   fn view(&self) -> iced::Element<'_, Self::Message> {
-    let fps_label =
+    let fps_text =
       text(format!("{:.02} FPS", 1.0 / self.last_tick_duration.as_secs_f32()).as_str())
         .font(PIXEL_NES_FONT)
         .size(20);
-    let state_label = text(<&'static str>::from(self.emulator_state).to_string())
+    let state_text = text(<&'static str>::from(self.emulator_state).to_string())
       .font(PIXEL_NES_FONT)
       .size(20);
+    let registers_text = text(
+      format!(
+        "A:{:02X} X:{:02X} Y:{:02X} P:{:02X} S:{:02X}",
+        self.machine.cpu.a,
+        self.machine.cpu.x,
+        self.machine.cpu.y,
+        self.machine.cpu.get_status_register(),
+        self.machine.cpu.s
+      )
+      .as_str(),
+    )
+    .font(PIXEL_NES_FONT)
+    .size(20);
 
-    let info_column = column![fps_label, state_label].width(Length::FillPortion(1));
+    let info_column = column![fps_text, state_text, registers_text].width(Length::FillPortion(1));
 
     let screen_view = image(self.crt_screen.image_handle())
       .width(Length::FillPortion(6))
