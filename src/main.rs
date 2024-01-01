@@ -1,4 +1,5 @@
 mod bus;
+mod bus_interceptor;
 mod cartridge;
 pub mod controller;
 mod cpu;

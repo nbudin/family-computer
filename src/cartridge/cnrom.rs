@@ -1,6 +1,11 @@
-use crate::{cpu::CPUBus, ppu::PPUMemory, rw_handle::RwHandle};
+use crate::{
+  bus_interceptor::{BusInterceptor, InterceptorResult},
+  cpu::CPUBus,
+  ppu::PPUMemory,
+  rw_handle::RwHandle,
+};
 
-use super::{BusInterceptor, Cartridge, CartridgeMirroring, CartridgeState, InterceptorResult};
+use super::{Cartridge, CartridgeMirroring, CartridgeState};
 
 #[derive(Debug, Clone)]
 pub struct CNROMState {
@@ -37,7 +42,7 @@ impl<'a> BusInterceptor<'a, u16> for CNROMCPUBusInterceptor<'a> {
     }
   }
 
-  fn intercept_write(&mut self, addr: u16, value: u8) -> super::InterceptorResult<()> {
+  fn intercept_write(&mut self, addr: u16, value: u8) -> InterceptorResult<()> {
     if addr < 0x8000 {
       InterceptorResult::NotIntercepted
     } else {

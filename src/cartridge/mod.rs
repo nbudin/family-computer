@@ -1,7 +1,7 @@
 use dyn_clone::DynClone;
 
 use self::{cnrom::CNROM, nrom::NROM};
-use crate::{bus::Bus, cpu::CPUBus, ines_rom::INESRom, ppu::PPUMemory};
+use crate::{bus_interceptor::BusInterceptor, cpu::CPUBus, ines_rom::INESRom, ppu::PPUMemory};
 use std::fmt::Debug;
 
 mod cnrom;
@@ -13,40 +13,6 @@ pub trait CartridgeState {}
 pub enum CartridgeMirroring {
   HORIZONTAL,
   VERTICAL,
-}
-
-pub enum InterceptorResult<T> {
-  Intercepted(T),
-  NotIntercepted,
-}
-
-pub trait BusInterceptor<'a, AddrType: Clone> {
-  fn bus(&self) -> &dyn Bus<AddrType>;
-  fn bus_mut(&mut self) -> &mut dyn Bus<AddrType>;
-
-  fn intercept_read_readonly(&self, addr: AddrType) -> InterceptorResult<Option<u8>>;
-  fn intercept_write(&mut self, addr: AddrType, value: u8) -> InterceptorResult<()>;
-  fn intercept_read_side_effects(&mut self, _addr: AddrType) {}
-}
-
-impl<'a, AddrType: Clone, I: BusInterceptor<'a, AddrType> + ?Sized> Bus<AddrType> for I {
-  fn try_read_readonly(&self, addr: AddrType) -> Option<u8> {
-    match self.intercept_read_readonly(addr.clone()) {
-      InterceptorResult::Intercepted(value) => value,
-      InterceptorResult::NotIntercepted => self.bus().try_read_readonly(addr),
-    }
-  }
-
-  fn read_side_effects(&mut self, addr: AddrType) {
-    self.intercept_read_side_effects(addr);
-  }
-
-  fn write(&mut self, addr: AddrType, value: u8) {
-    match self.intercept_write(addr.clone(), value) {
-      InterceptorResult::Intercepted(_) => {}
-      InterceptorResult::NotIntercepted => self.bus_mut().write(addr, value),
-    }
-  }
 }
 
 pub trait Cartridge: Debug + DynClone {

@@ -1,7 +1,8 @@
 use std::{any::Any, fmt::Debug, io::Write};
 
 use crate::{
-  cartridge::{load_cartridge, BoxCartridge, BusInterceptor},
+  bus_interceptor::BusInterceptor,
+  cartridge::{load_cartridge, BoxCartridge},
   controller::Controller,
   cpu::{CPUBus, ExecutedInstruction, CPU},
   gui::PIXEL_BUFFER_SIZE,
