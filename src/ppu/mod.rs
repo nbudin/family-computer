@@ -4,11 +4,13 @@ mod ppu_cpu_bus;
 mod ppu_memory;
 mod registers;
 mod scrolling;
+mod sprites;
 
 pub use ppu::*;
 pub use ppu_cpu_bus::*;
 pub use ppu_memory::*;
 pub use registers::*;
+pub use sprites::*;
 
 #[cfg(test)]
 mod tests {

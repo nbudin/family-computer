@@ -2,11 +2,13 @@ use crate::{
   bus::Bus,
   gui::{PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
   machine::Machine,
+  palette::PALETTE,
 };
 
 use super::{
   registers::{PPUControlRegister, PPULoopyRegister, PPUMaskRegister, PPUStatusRegister},
-  PPUOAMEntry,
+  sprites::PPUOAMEntry,
+  ActiveSprite, SpritePriority,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +33,7 @@ pub struct PPU {
   pub name_tables: [[u8; 1024]; 2],
   pub pattern_tables: [[u8; 4096]; 2],
   pub oam: [PPUOAMEntry; 64],
+  pub sprite_scanline: Vec<ActiveSprite>,
   pub bg_next_tile_id: u8,
   pub bg_next_tile_attrib: u8,
   pub bg_next_tile_low: u8,
@@ -39,6 +42,8 @@ pub struct PPU {
   pub bg_shifter_pattern_high: u16,
   pub bg_shifter_attrib_low: u16,
   pub bg_shifter_attrib_high: u16,
+  pub sprite_shifter_pattern_low: [u8; 8],
+  pub sprite_shifter_pattern_high: [u8; 8],
   pub frame_count: u64,
   pub status_register_read_this_tick: bool,
   pub status_register_read_last_tick: bool,
@@ -62,6 +67,7 @@ impl PPU {
       name_tables: [[0; 1024], [0; 1024]],
       pattern_tables: [[0; 4096], [0; 4096]],
       oam: [PPUOAMEntry::from(0); 64],
+      sprite_scanline: Vec::with_capacity(8),
       bg_next_tile_attrib: 0,
       bg_next_tile_id: 0,
       bg_next_tile_low: 0,
@@ -70,6 +76,8 @@ impl PPU {
       bg_shifter_attrib_low: 0,
       bg_shifter_pattern_high: 0,
       bg_shifter_pattern_low: 0,
+      sprite_shifter_pattern_low: [0; 8],
+      sprite_shifter_pattern_high: [0; 8],
       frame_count: 0,
       status_register_read_this_tick: false,
       status_register_read_last_tick: false,
@@ -89,6 +97,9 @@ impl PPU {
       state.ppu.status.set_vertical_blank(false);
       state.ppu.status.set_sprite_zero_hit(false);
       state.ppu.status.set_sprite_overflow(false);
+
+      state.ppu.sprite_shifter_pattern_low = [0; 8];
+      state.ppu.sprite_shifter_pattern_high = [0; 8];
     }
 
     if (state.ppu.cycle >= 2 && state.ppu.cycle < 258)
@@ -107,6 +118,10 @@ impl PPU {
         state.ppu.transfer_address_x();
       }
 
+      if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
+        state.ppu.transfer_address_y();
+      }
+
       if state.ppu.cycle == 338 || state.ppu.cycle == 340 {
         // superfluous reads of tile id at end of scanline
         let addr = 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff);
@@ -114,19 +129,62 @@ impl PPU {
         state.ppu.bg_next_tile_id = next_tile_id;
       }
 
-      if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
-        state.ppu.transfer_address_y();
+      // Foreground rendering =========================================================
+      if state.ppu.cycle == 257 && state.ppu.scanline >= 0 {
+        PPU::evaluate_scanline_sprites(state);
+      }
+
+      if state.ppu.cycle == 340 {
+        for sprite_index in 0..state.ppu.sprite_scanline.len() {
+          PPU::load_sprite_data_for_next_scanline(state, sprite_index);
+        }
       }
     }
   }
 
   fn draw_current_pixel(state: &mut Machine, pixbuf: &mut [u8; 245760]) {
-    // Pixel is in the visible range of the CRT
-    let mut color: [u8; 3] = [0, 0, 0];
+    let (bg_pixel, bg_palette) = if state.ppu.mask.render_background() {
+      PPU::get_current_pixel_bg_color_and_palette(state)
+    } else {
+      (0, 0)
+    };
 
-    if state.ppu.mask.render_background() {
-      color = PPU::get_current_pixel_bg_color(state);
-    }
+    let (fg_pixel, fg_palette, priority, sprite0) = if state.ppu.mask.render_sprites() {
+      PPU::get_current_pixel_fg_color_palette_priority_and_sprite0(state)
+    } else {
+      (0, 0, SpritePriority::Background, false)
+    };
+
+    let (pixel, palette) = if bg_pixel == 0 && fg_pixel == 0 {
+      (0, 0)
+    } else if bg_pixel == 0 {
+      (fg_pixel, fg_palette)
+    } else if fg_pixel == 0 {
+      (bg_pixel, bg_palette)
+    } else {
+      if sprite0 {
+        if state.ppu.mask.render_background() && state.ppu.mask.render_sprites() {
+          if !(state.ppu.mask.render_background_left() || state.ppu.mask.render_sprites_left()) {
+            if state.ppu.cycle >= 9 && state.ppu.cycle < 258 {
+              state.ppu.status.set_sprite_zero_hit(true);
+            }
+          } else {
+            if state.ppu.cycle >= 1 && state.ppu.cycle < 258 {
+              state.ppu.status.set_sprite_zero_hit(true);
+            }
+          }
+        }
+      }
+
+      if priority == SpritePriority::Foreground {
+        (fg_pixel, fg_palette)
+      } else {
+        (bg_pixel, bg_palette)
+      }
+    };
+
+    let color =
+      PALETTE[PPU::get_palette_color(state, palette as u16, pixel as u16) as usize % PALETTE.len()];
 
     PPU::set_pixel(
       pixbuf,

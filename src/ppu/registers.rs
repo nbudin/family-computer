@@ -1,5 +1,4 @@
 use bitfield_struct::bitfield;
-use bytemuck::{Pod, Zeroable};
 
 #[derive(Debug, Clone, Copy)]
 pub enum PPURegister {
@@ -63,6 +62,16 @@ pub struct PPUControlRegister {
   pub enable_nmi: bool,
 }
 
+impl PPUControlRegister {
+  pub fn sprite_height(&self) -> u8 {
+    if self.sprite_size() {
+      16
+    } else {
+      8
+    }
+  }
+}
+
 #[bitfield(u16)]
 pub struct PPULoopyRegister {
   #[bits(5)]
@@ -74,13 +83,4 @@ pub struct PPULoopyRegister {
   #[bits(3)]
   pub fine_y: u8,
   _unused: bool,
-}
-
-#[bitfield(u32)]
-#[derive(Pod, Zeroable)]
-pub struct PPUOAMEntry {
-  pub y: u8,
-  pub tile_id: u8,
-  pub attribute: u8,
-  pub x: u8,
 }

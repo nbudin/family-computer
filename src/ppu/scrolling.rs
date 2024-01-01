@@ -78,6 +78,18 @@ impl PPU {
       self.bg_shifter_attrib_high <<= 1;
       self.bg_shifter_attrib_low <<= 1;
     }
+
+    if self.mask.render_sprites() && self.cycle >= 1 && self.cycle < 258 {
+      for sprite_index in 0..self.sprite_scanline.len() {
+        let sprite = &mut self.sprite_scanline[sprite_index];
+        if sprite.oam_entry.x() > 0 {
+          sprite.oam_entry.set_x(sprite.oam_entry.x() - 1);
+        } else {
+          self.sprite_shifter_pattern_low[sprite_index] <<= 1;
+          self.sprite_shifter_pattern_high[sprite_index] <<= 1;
+        }
+      }
+    }
   }
 
   pub fn update_bg_registers(state: &mut Machine) {
