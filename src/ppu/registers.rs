@@ -10,7 +10,6 @@ pub enum PPURegister {
   PPUSCROLL,
   PPUADDR,
   PPUDATA,
-  OAMDMA,
 }
 
 impl PPURegister {
