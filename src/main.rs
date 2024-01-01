@@ -3,6 +3,7 @@ mod bus_interceptor;
 mod cartridge;
 pub mod controller;
 mod cpu;
+mod dma;
 mod gui;
 mod ines_rom;
 mod machine;

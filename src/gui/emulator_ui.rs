@@ -4,7 +4,7 @@ use iced::{
   executor,
   keyboard::{self, KeyCode},
   theme::Palette,
-  widget::{column, image, row, text},
+  widget::{column, image, row, text, vertical_space},
   Application, Color, Command, Font, Length, Subscription, Theme,
 };
 use strum::IntoStaticStr;
@@ -234,7 +234,8 @@ impl Application for EmulatorUI {
       state_text,
       registers_text,
       cpu_status_text,
-      ppu_status_text
+      ppu_status_text,
+      vertical_space(10),
     ]
     .width(Length::FillPortion(1));
 

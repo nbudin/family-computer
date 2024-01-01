@@ -2,6 +2,7 @@ use crate::{
   bus::Bus,
   cartridge::CartridgeMirroring,
   controller::Controller,
+  dma::DMA,
   ppu::{PPUCPUBus, PPURegister, PPU},
   rw_handle::RwHandle,
 };
@@ -10,6 +11,7 @@ pub struct CPUBus<'a> {
   pub work_ram: RwHandle<'a, [u8; 2048]>,
   pub controllers: RwHandle<'a, [Controller; 2]>,
   pub ppu: RwHandle<'a, PPU>,
+  pub dma: RwHandle<'a, DMA>,
   pub mirroring: CartridgeMirroring,
 }
 
@@ -24,6 +26,8 @@ impl Bus<u16> for CPUBus<'_> {
         ppu: RwHandle::ReadOnly(&self.ppu),
       };
       ppu_cpu_bus.try_read_readonly(PPURegister::from_address(addr))
+    } else if addr == 0x4014 {
+      None
     } else if addr < 0x4016 {
       // TODO APU registers
       None
@@ -46,6 +50,7 @@ impl Bus<u16> for CPUBus<'_> {
         ppu: RwHandle::ReadWrite(self.ppu.get_mut()),
       };
       ppu_cpu_bus.read_side_effects(PPURegister::from_address(addr))
+    } else if addr == 0x4014 {
     } else if addr < 0x4016 {
       // TODO APU registers
     } else if addr < 0x4018 {
@@ -68,6 +73,10 @@ impl Bus<u16> for CPUBus<'_> {
         ppu: RwHandle::ReadWrite(self.ppu.get_mut()),
       };
       ppu_cpu_bus.write(PPURegister::from_address(addr), value);
+    } else if addr == 0x4014 {
+      let dma = self.dma.get_mut();
+      dma.page = value;
+      dma.addr = 0;
     } else if addr < 0x4016 {
       // TODO APU registers
       ()
