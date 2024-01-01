@@ -39,7 +39,8 @@ impl Bus<u16> for CPUBus<'_> {
   }
 
   fn read_side_effects(&mut self, addr: u16) {
-    if addr < 0x4000 {
+    if addr < 0x2000 {
+    } else if addr < 0x4000 {
       let mut ppu_cpu_bus = PPUCPUBus {
         mirroring: self.mirroring,
         ppu: RwHandle::ReadWrite(self.ppu.get_mut()),
