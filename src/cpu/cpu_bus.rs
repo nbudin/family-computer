@@ -45,6 +45,14 @@ impl Bus<u16> for CPUBus<'_> {
         ppu: RwHandle::ReadWrite(self.ppu.get_mut()),
       };
       ppu_cpu_bus.read_side_effects(PPURegister::from_address(addr))
+    } else if addr < 0x4016 {
+      // TODO APU registers
+    } else if addr < 0x4018 {
+      let controller = &mut self.controllers.get_mut()[addr as usize - 0x4016];
+      controller.read_side_effects(())
+    } else if addr < 0x4020 {
+      // TODO: CPU test mode
+    } else {
     }
   }
 
