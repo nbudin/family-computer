@@ -9,7 +9,7 @@ use iced::{
 };
 use strum::IntoStaticStr;
 
-use crate::{controller::ControllerButton, machine::Machine};
+use crate::{bus::Bus, controller::ControllerButton, machine::Machine};
 
 use super::CRTScreen;
 
@@ -187,22 +187,59 @@ impl Application for EmulatorUI {
       .size(20);
     let registers_text = text(
       format!(
-        "A:{:02X} X:{:02X} Y:{:02X} P:{:02X} S:{:02X}",
+        "A-{:02X} X-{:02X} Y-{:02X} S-{:02X}\nPC-{:04X}",
         self.machine.cpu.a,
         self.machine.cpu.x,
         self.machine.cpu.y,
-        u8::from(self.machine.cpu.p),
-        self.machine.cpu.s
+        self.machine.cpu.s,
+        self.machine.cpu.pc
+      )
+      .as_str(),
+    )
+    .font(PIXEL_NES_FONT)
+    .size(20);
+    let cpu_status_text = text(
+      format!(
+        "N-{} V-{} D-{} I-{} Z-{} C-{}",
+        u8::from(self.machine.cpu.p.negative_flag()),
+        u8::from(self.machine.cpu.p.overflow_flag()),
+        u8::from(self.machine.cpu.p.decimal_flag()),
+        u8::from(self.machine.cpu.p.interrupt_disable()),
+        u8::from(self.machine.cpu.p.zero_flag()),
+        u8::from(self.machine.cpu.p.carry_flag()),
       )
       .as_str(),
     )
     .font(PIXEL_NES_FONT)
     .size(20);
 
-    let info_column = column![fps_text, state_text, registers_text].width(Length::FillPortion(1));
+    let ppu_status_text = text(
+      format!(
+        "Scanl {}\nCycle {}\n$2002-{:02X}\n$2004-{:02X}\n$2007-{:02X}\nv:{:04X} t:{:04X}",
+        self.machine.ppu.scanline,
+        self.machine.ppu.cycle,
+        self.machine.cpu_bus().read_readonly(0x2002),
+        self.machine.cpu_bus().read_readonly(0x2004),
+        self.machine.cpu_bus().read_readonly(0x2007),
+        u16::from(self.machine.ppu.vram_addr),
+        u16::from(self.machine.ppu.tram_addr)
+      )
+      .as_str(),
+    )
+    .font(PIXEL_NES_FONT)
+    .size(20);
+
+    let info_column = column![
+      fps_text,
+      state_text,
+      registers_text,
+      cpu_status_text,
+      ppu_status_text
+    ]
+    .width(Length::FillPortion(1));
 
     let screen_view = image(self.crt_screen.image_handle())
-      .width(Length::FillPortion(6))
+      .width(Length::FillPortion(4))
       .height(Length::Fill);
 
     let layout = row![screen_view, info_column].spacing(20);

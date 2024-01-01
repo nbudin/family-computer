@@ -865,6 +865,7 @@ name = "family-computer"
 version = "0.1.0"
 dependencies = [
  "bitfield-struct",
+ "bytemuck",
  "dyn-clone",
  "iced",
  "similar-asserts",

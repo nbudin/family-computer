@@ -1,14 +1,18 @@
 use crate::{
+  bus::Bus,
   gui::{PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
   machine::Machine,
 };
 
-use super::registers::{PPUControlRegister, PPULoopyRegister, PPUMaskRegister, PPUStatusRegister};
+use super::{
+  registers::{PPUControlRegister, PPULoopyRegister, PPUMaskRegister, PPUStatusRegister},
+  PPUOAMEntry,
+};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum PPUAddressLatch {
-  High,
-  Low,
+  High = 0,
+  Low = 1,
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +30,7 @@ pub struct PPU {
   pub palette_ram: [u8; 32],
   pub name_tables: [[u8; 1024]; 2],
   pub pattern_tables: [[u8; 4096]; 2],
+  pub oam: [PPUOAMEntry; 64],
   pub bg_next_tile_id: u8,
   pub bg_next_tile_attrib: u8,
   pub bg_next_tile_low: u8,
@@ -37,13 +42,14 @@ pub struct PPU {
   pub frame_count: u64,
   pub status_register_read_this_tick: bool,
   pub status_register_read_last_tick: bool,
+  pub oam_addr: u8,
 }
 
 impl PPU {
   pub fn new() -> Self {
     Self {
       cycle: 0,
-      scanline: 0,
+      scanline: -1,
       mask: PPUMaskRegister::new(),
       control: PPUControlRegister::new(),
       status: PPUStatusRegister::new(),
@@ -55,6 +61,7 @@ impl PPU {
       address_latch: PPUAddressLatch::High,
       name_tables: [[0; 1024], [0; 1024]],
       pattern_tables: [[0; 4096], [0; 4096]],
+      oam: [PPUOAMEntry::from(0); 64],
       bg_next_tile_attrib: 0,
       bg_next_tile_id: 0,
       bg_next_tile_low: 0,
@@ -66,6 +73,7 @@ impl PPU {
       frame_count: 0,
       status_register_read_this_tick: false,
       status_register_read_last_tick: false,
+      oam_addr: 0,
     }
   }
 
@@ -101,9 +109,9 @@ impl PPU {
 
       if state.ppu.cycle == 338 || state.ppu.cycle == 340 {
         // superfluous reads of tile id at end of scanline
-        state.ppu.bg_next_tile_id = state
-          .ppu
-          .get_ppu_mem(state, 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff));
+        let addr = 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff);
+        let next_tile_id = state.ppu_memory_mut().read(addr);
+        state.ppu.bg_next_tile_id = next_tile_id;
       }
 
       if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
@@ -117,10 +125,10 @@ impl PPU {
     let mut color: [u8; 3] = [0, 0, 0];
 
     if state.ppu.mask.render_background() {
-      color = state.ppu.get_current_pixel_bg_color(state);
+      color = PPU::get_current_pixel_bg_color(state);
     }
 
-    state.ppu.set_pixel(
+    PPU::set_pixel(
       pixbuf,
       color,
       u32::try_from(state.ppu.cycle - 1).unwrap(),

@@ -1,17 +1,13 @@
-use std::{
-  any::Any,
-  env,
-  fmt::Debug,
-  io::{BufWriter, Write},
-};
+use std::{any::Any, fmt::Debug, io::Write};
 
 use crate::{
-  cartridge::{load_cartridge, BoxCartridge},
+  cartridge::{load_cartridge, BoxCartridge, BusInterceptor},
   controller::Controller,
-  cpu::{ExecutedInstruction, CPU},
+  cpu::{CPUBus, ExecutedInstruction, CPU},
   gui::PIXEL_BUFFER_SIZE,
   ines_rom::INESRom,
-  ppu::{PPURegister, PPU},
+  ppu::{PPUMemory, PPU},
+  rw_handle::RwHandle,
 };
 
 pub type WorkRAM = [u8; 2048];
@@ -43,7 +39,7 @@ pub struct Machine {
   pub cpu_cycle_count: u64,
   pub ppu_cycle_count: u64,
   pub last_executed_instruction: Option<ExecutedInstruction>,
-  pub disassembly_writer: Option<BufWriter<Box<dyn DisassemblyWriter>>>,
+  pub disassembly_writer: Option<Box<dyn DisassemblyWriter>>,
 }
 
 impl Debug for Machine {
@@ -87,11 +83,7 @@ impl Machine {
       cpu_cycle_count: 0,
       ppu_cycle_count: 0,
       last_executed_instruction: None,
-      disassembly_writer: if env::var("DISASSEMBLE").unwrap_or_default().is_empty() {
-        None
-      } else {
-        Some(BufWriter::new(Box::new(std::io::stdout())))
-      },
+      disassembly_writer: None,
     };
 
     machine.reset();
@@ -130,7 +122,6 @@ impl Machine {
   }
 
   pub fn tick(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
-    self.tick_ppu(pixbuf);
     if self.ppu_cycle_count % 3 == 0 {
       if let Some(disassembly_writer) = &mut self.disassembly_writer {
         if let Some(executed_instruction) = &self.last_executed_instruction {
@@ -144,6 +135,8 @@ impl Machine {
 
       self.tick_cpu();
     }
+
+    self.tick_ppu(pixbuf);
   }
 
   pub fn nmi(&mut self) {
@@ -156,68 +149,40 @@ impl Machine {
     self.cpu_cycle_count = 0;
   }
 
-  pub fn get_cpu_mem_readonly(&self, addr: u16) -> u8 {
-    if let Some(value) = self.cartridge.get_cpu_mem(addr) {
-      value
-    } else if addr < 0x2000 {
-      let actual_address = addr % 0x800;
-      self.work_ram[usize::from(actual_address)]
-    } else if addr < 0x4000 {
-      PPU::read_bus_readonly(self, PPURegister::from_address(addr))
-    } else if addr < 0x4016 {
-      // TODO APU registers
-      0
-    } else if addr < 0x4018 {
-      let controller = &self.controllers[addr as usize - 0x4016];
-      controller.read_readonly()
-    } else if addr < 0x4020 {
-      // TODO: CPU test mode
-      0
-    } else {
-      0
-    }
+  pub fn cpu_bus<'a>(&'a self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    let bus = CPUBus {
+      controllers: RwHandle::ReadOnly(&self.controllers),
+      work_ram: RwHandle::ReadOnly(&self.work_ram),
+      mirroring: self.cartridge.get_mirroring(),
+      ppu: RwHandle::ReadOnly(&self.ppu),
+    };
+    self.cartridge.cpu_bus_interceptor(bus)
   }
 
-  pub fn get_cpu_mem(&mut self, addr: u16) -> u8 {
-    if let Some(value) = self.cartridge.get_cpu_mem(addr) {
-      value
-    } else if addr < 0x2000 {
-      let actual_address = addr % 0x800;
-      self.work_ram[usize::from(actual_address)]
-    } else if addr < 0x4000 {
-      PPU::read_bus(self, PPURegister::from_address(addr))
-    } else if addr < 0x4016 {
-      // TODO APU registers
-      0
-    } else if addr < 0x4018 {
-      let controller = &mut self.controllers[addr as usize - 0x4016];
-      controller.read()
-    } else if addr < 0x4020 {
-      // TODO: CPU test mode
-      0
-    } else {
-      0
-    }
+  pub fn cpu_bus_mut<'a>(&'a mut self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    let cartridge = &mut self.cartridge;
+    let bus = CPUBus {
+      controllers: RwHandle::ReadWrite(&mut self.controllers),
+      work_ram: RwHandle::ReadWrite(&mut self.work_ram),
+      mirroring: cartridge.get_mirroring(),
+      ppu: RwHandle::ReadWrite(&mut self.ppu),
+    };
+    cartridge.cpu_bus_interceptor_mut(bus)
   }
 
-  pub fn set_cpu_mem(&mut self, addr: u16, value: u8) {
-    if self.cartridge.set_cpu_mem(addr, value) {
-      // cartridge intercepted it
-    } else if addr < 0x2000 {
-      let actual_address = addr % 0x800;
-      self.work_ram[usize::from(actual_address)] = value;
-    } else if addr < 0x4000 {
-      PPU::write_bus(self, PPURegister::from_address(addr), value);
-    } else if addr < 0x4016 {
-      // TODO APU registers
-      ()
-    } else if addr < 0x4018 {
-      let controller_index = addr as usize - 0x4016;
-      let controller = &mut self.controllers[controller_index];
-      controller.poll();
-    } else if addr < 0x4020 {
-      // TODO: CPU test mode
-      ()
-    }
+  pub fn ppu_memory<'a>(&'a self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    let bus = PPUMemory {
+      ppu: RwHandle::ReadOnly(&self.ppu),
+      mirroring: self.cartridge.get_mirroring(),
+    };
+    self.cartridge.ppu_memory_interceptor(bus)
+  }
+
+  pub fn ppu_memory_mut<'a>(&'a mut self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    let bus = PPUMemory {
+      ppu: RwHandle::ReadWrite(&mut self.ppu),
+      mirroring: self.cartridge.get_mirroring(),
+    };
+    self.cartridge.ppu_memory_interceptor_mut(bus)
   }
 }

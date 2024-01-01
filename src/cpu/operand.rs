@@ -1,4 +1,4 @@
-use crate::machine::Machine;
+use crate::{bus::Bus, machine::Machine};
 
 #[derive(Debug, Clone)]
 pub enum Operand {
@@ -35,21 +35,23 @@ impl Operand {
         new_addr
       }
       Operand::Indirect(addr) => {
-        let low = state.get_cpu_mem(*addr);
-        let high = state.get_cpu_mem(
-          (*addr & 0xff00) + u16::from(u8::try_from(*addr & 0xff).unwrap().wrapping_add(1)),
-        );
+        let low = state.cpu_bus_mut().read(*addr);
+        let high = state
+          .cpu_bus_mut()
+          .read((*addr & 0xff00) + u16::from(u8::try_from(*addr & 0xff).unwrap().wrapping_add(1)));
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectX(addr) => {
         let addr_location = state.cpu.x.wrapping_add(*addr);
-        let low = state.get_cpu_mem(u16::from(addr_location));
-        let high = state.get_cpu_mem(u16::from(addr_location.wrapping_add(1)));
+        let low = state.cpu_bus_mut().read(u16::from(addr_location));
+        let high = state
+          .cpu_bus_mut()
+          .read(u16::from(addr_location.wrapping_add(1)));
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectY(zp_addr) => {
-        let low = state.get_cpu_mem(u16::from(*zp_addr));
-        let high = state.get_cpu_mem(u16::from(zp_addr.wrapping_add(1)));
+        let low = state.cpu_bus_mut().read(u16::from(*zp_addr));
+        let high = state.cpu_bus_mut().read(u16::from(zp_addr.wrapping_add(1)));
         let addr = (u16::from(high) << 8) + u16::from(low);
         let new_addr = addr.wrapping_add(u16::from(state.cpu.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
@@ -81,21 +83,25 @@ impl Operand {
         new_addr
       }
       Operand::Indirect(addr) => {
-        let low = state.get_cpu_mem_readonly(*addr);
-        let high = state.get_cpu_mem_readonly(
+        let low = state.cpu_bus().read_readonly(*addr);
+        let high = state.cpu_bus().read_readonly(
           (*addr & 0xff00) + u16::from(u8::try_from(*addr & 0xff).unwrap().wrapping_add(1)),
         );
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectX(addr) => {
         let addr_location = state.cpu.x.wrapping_add(*addr);
-        let low = state.get_cpu_mem_readonly(u16::from(addr_location));
-        let high = state.get_cpu_mem_readonly(u16::from(addr_location.wrapping_add(1)));
+        let low = state.cpu_bus().read_readonly(u16::from(addr_location));
+        let high = state
+          .cpu_bus()
+          .read_readonly(u16::from(addr_location.wrapping_add(1)));
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectY(zp_addr) => {
-        let low = state.get_cpu_mem_readonly(u16::from(*zp_addr));
-        let high = state.get_cpu_mem_readonly(u16::from(zp_addr.wrapping_add(1)));
+        let low = state.cpu_bus().read_readonly(u16::from(*zp_addr));
+        let high = state
+          .cpu_bus()
+          .read_readonly(u16::from(zp_addr.wrapping_add(1)));
         let addr = (u16::from(high) << 8) + u16::from(low);
         let new_addr = addr.wrapping_add(u16::from(state.cpu.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
@@ -115,7 +121,7 @@ impl Operand {
       Operand::Immediate(value) => (*value, false),
       _ => {
         let (addr, page_boundary_crossed) = self.get_addr(state);
-        (state.get_cpu_mem(addr), page_boundary_crossed)
+        (state.cpu_bus_mut().read(addr), page_boundary_crossed)
       }
     }
   }
@@ -126,7 +132,7 @@ impl Operand {
       Operand::Immediate(value) => (*value, false),
       _ => {
         let (addr, page_boundary_crossed) = self.get_addr_readonly(state);
-        (state.get_cpu_mem_readonly(addr), page_boundary_crossed)
+        (state.cpu_bus().read_readonly(addr), page_boundary_crossed)
       }
     }
   }

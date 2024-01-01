@@ -1,9 +1,11 @@
 mod cpu;
+mod cpu_bus;
 mod disassembly;
 mod instructions;
 mod operand;
 
 pub use cpu::*;
+pub use cpu_bus::*;
 pub use disassembly::*;
 pub use instructions::*;
 pub use operand::*;
@@ -13,7 +15,7 @@ mod tests {
   use similar_asserts::assert_eq;
   use std::{
     cell::RefCell,
-    io::{BufReader, BufWriter, Write},
+    io::{BufReader, Write},
   };
 
   #[derive(Clone, Debug)]
@@ -43,11 +45,7 @@ mod tests {
     }
   }
 
-  use crate::{
-    gui::PIXEL_BUFFER_SIZE,
-    ines_rom::INESRom,
-    machine::{DisassemblyWriter, Machine},
-  };
+  use crate::{gui::PIXEL_BUFFER_SIZE, ines_rom::INESRom, machine::Machine};
 
   #[test]
   fn nestest_smoke_test() {
@@ -56,29 +54,41 @@ mod tests {
     let rom = INESRom::from_reader(&mut BufReader::new(&nestest_data[..])).unwrap();
 
     let mut machine = Machine::from_rom(rom);
-    machine.cpu_cycle_count = 7;
-    machine.ppu.cycle = 21;
+    // machine.cpu_cycle_count = 7;
+    // machine.ppu.cycle = 21;
     machine.cpu.pc = 0xc000;
+    machine.cpu.p = 0x24.into();
 
     let mut fake_pixbuf = [0; PIXEL_BUFFER_SIZE];
     let disasm_writer = StringWriter::new();
-    machine.disassembly_writer = Some(BufWriter::new(Box::new(disasm_writer)));
+    machine.disassembly_writer = Some(Box::new(disasm_writer.clone()));
 
     // weird PPU behavior tests start here and I'm not sure those are valid
-    while machine.cpu_cycle_count < 26518 {
+    while machine.cpu_cycle_count < 26520 {
       machine.tick(&mut fake_pixbuf);
     }
 
-    let disasm_writer = machine.disassembly_writer.unwrap().into_inner().unwrap();
-    let string_writer = disasm_writer.into_any().downcast::<StringWriter>().unwrap();
-    let disasm: String = string_writer.into_string();
+    let disasm: String = disasm_writer.into_string();
 
-    println!("{}", disasm);
-    assert_eq!(disasm.split("\r\n").count(), 8980);
-    for (disasm_line, expected_line) in disasm.split("\r\n").zip(expected_log.split("\r\n")) {
+    for (line_index, (disasm_line, expected_line)) in disasm
+      .split("\n")
+      .zip(expected_log.split("\r\n"))
+      .enumerate()
+    {
       if !disasm_line.is_empty() {
-        assert_eq!(disasm_line, expected_line);
+        assert_eq!(
+          disasm_line,
+          expected_line,
+          "Line {} did not match",
+          line_index + 1
+        );
       }
     }
+
+    assert_eq!(
+      disasm.split("\n").count(),
+      8980,
+      "Number of lines in disassembly log did not match"
+    );
   }
 }

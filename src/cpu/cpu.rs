@@ -2,20 +2,20 @@ use std::fmt::Debug;
 
 use bitfield_struct::bitfield;
 
-use crate::machine::Machine;
+use crate::{bus::Bus, machine::Machine};
 
 use super::{ExecutedInstruction, Instruction, Operand};
 
 #[bitfield(u8)]
 pub struct CPUStatusRegister {
-  carry_flag: bool,
-  zero_flag: bool,
-  interrupt_disable: bool,
-  decimal_flag: bool,
-  break_flag: bool,
-  unused: bool,
-  overflow_flag: bool,
-  negative_flag: bool,
+  pub carry_flag: bool,
+  pub zero_flag: bool,
+  pub interrupt_disable: bool,
+  pub decimal_flag: bool,
+  pub break_flag: bool,
+  pub unused: bool,
+  pub overflow_flag: bool,
+  pub negative_flag: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -54,7 +54,7 @@ impl CPU {
       Operand::Accumulator => state.cpu.a = value,
       _ => {
         let addr = op.get_addr(state).0;
-        state.set_cpu_mem(addr, value);
+        state.cpu_bus_mut().write(addr, value);
       }
     }
   }
@@ -82,7 +82,7 @@ impl CPU {
     let mut addr = self.s;
 
     loop {
-      values.push(state.get_cpu_mem(u16::from(addr) + 0x100));
+      values.push(state.cpu_bus_mut().read(u16::from(addr) + 0x100));
       addr += 1;
       if addr > 0xfd {
         break;
@@ -93,18 +93,20 @@ impl CPU {
   }
 
   fn push_stack(value: u8, state: &mut Machine) {
-    state.set_cpu_mem(u16::from(state.cpu.s) + 0x100, value);
+    let addr = u16::from(state.cpu.s) + 0x100;
+    state.cpu_bus_mut().write(addr, value);
     state.cpu.s -= 1;
   }
 
   fn pull_stack(state: &mut Machine) -> u8 {
     state.cpu.s += 1;
-    state.get_cpu_mem(u16::from(state.cpu.s) + 0x100)
+    let addr = u16::from(state.cpu.s) + 0x100;
+    state.cpu_bus_mut().read(addr)
   }
 
   pub fn reset(state: &mut Machine) {
-    let low = state.get_cpu_mem(0xfffc);
-    let high = state.get_cpu_mem(0xfffd);
+    let low = state.cpu_bus_mut().read(0xfffc);
+    let high = state.cpu_bus_mut().read(0xfffd);
     let reset_vector = (u16::from(high) << 8) + u16::from(low);
 
     CPU::set_pc(&Operand::Absolute(reset_vector), state);
@@ -121,6 +123,13 @@ impl CPU {
   pub fn tick(state: &mut Machine) -> Option<ExecutedInstruction> {
     let prev_ppu_cycle = state.ppu.cycle;
     let prev_ppu_scanline = state.ppu.scanline;
+    let prev_vram_addr: u16 = u16::from(state.ppu.vram_addr);
+    let prev_tram_addr: u16 = u16::from(state.ppu.tram_addr);
+    let prev_fine_x = state.ppu.fine_x;
+    let prev_address_latch = state.ppu.address_latch;
+    let prev_ppu_2002 = state.cpu_bus().read_readonly(0x2002);
+    let prev_ppu_2004 = state.cpu_bus().read_readonly(0x2004);
+    let prev_ppu_2007 = state.cpu_bus().read_readonly(0x2007);
     let prev_cycle_count = state.cpu_cycle_count;
     let prev_cpu = state.cpu.clone();
 
@@ -132,8 +141,8 @@ impl CPU {
       state.cpu.p.set_unused(true);
       CPU::push_stack(state.cpu.p.into(), state);
 
-      let low = state.get_cpu_mem(0xfffa);
-      let high = state.get_cpu_mem(0xfffb);
+      let low = state.cpu_bus_mut().read(0xfffa);
+      let high = state.cpu_bus_mut().read(0xfffb);
       let nmi_vector = (u16::from(high) << 8) + u16::from(low);
 
       CPU::set_pc(&Operand::Absolute(nmi_vector), state);
@@ -156,8 +165,8 @@ impl CPU {
       state.cpu.p.set_interrupt_disable(true);
       state.cpu.p.set_unused(true);
 
-      let low = state.get_cpu_mem(0xfffe);
-      let high = state.get_cpu_mem(0xffff);
+      let low = state.cpu_bus_mut().read(0xfffe);
+      let high = state.cpu_bus_mut().read(0xffff);
       let irq_vector = (u16::from(high) << 8) + u16::from(low);
 
       CPU::set_pc(&Operand::Absolute(irq_vector), state);
@@ -181,6 +190,13 @@ impl CPU {
       cycle_count: prev_cycle_count,
       disassembled_instruction,
       prev_cpu,
+      ppu2002: prev_ppu_2002,
+      ppu2004: prev_ppu_2004,
+      ppu2007: prev_ppu_2007,
+      tram_addr: prev_tram_addr,
+      vram_addr: prev_vram_addr,
+      fine_x: prev_fine_x,
+      ppu_address_latch: prev_address_latch,
     })
   }
 
@@ -292,8 +308,8 @@ impl CPU {
         state.cpu.p.set_break_flag(true);
         CPU::push_stack(state.cpu.p.into(), state);
 
-        let low = state.get_cpu_mem(0xfffe);
-        let high = state.get_cpu_mem(0xffff);
+        let low = state.cpu_bus_mut().read(0xfffe);
+        let high = state.cpu_bus_mut().read(0xffff);
         let irq_vector = (u16::from(high) << 8) + u16::from(low);
 
         CPU::set_pc(&Operand::Absolute(irq_vector), state);

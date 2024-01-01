@@ -1,18 +1,20 @@
-mod bus;
 mod drawing;
 mod ppu;
+mod ppu_cpu_bus;
 mod ppu_memory;
 mod registers;
 mod scrolling;
 
 pub use ppu::*;
+pub use ppu_cpu_bus::*;
+pub use ppu_memory::*;
 pub use registers::*;
 
 #[cfg(test)]
 mod tests {
   use std::io::BufReader;
 
-  use crate::{gui::PIXEL_BUFFER_SIZE, ines_rom::INESRom, machine::Machine};
+  use crate::{bus::Bus, gui::PIXEL_BUFFER_SIZE, ines_rom::INESRom, machine::Machine};
 
   fn run_blargg_ppu_test(rom_data: &[u8]) -> u8 {
     let rom = INESRom::from_reader(&mut BufReader::new(&rom_data[..])).unwrap();
@@ -24,7 +26,7 @@ mod tests {
       machine.execute_frame(&mut fake_pixbuf);
 
       // blargg's ppu tests write their result to 0x00f8 in work ram
-      result = machine.get_cpu_mem_readonly(0x00f8);
+      result = machine.cpu_bus().read_readonly(0x00f8);
 
       // wait for a successful result or time out
       if result == 1 || machine.ppu.frame_count > 5 * 60 {

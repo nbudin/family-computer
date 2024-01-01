@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use crate::machine::Machine;
+use crate::{bus::Bus, machine::Machine, ppu::PPUAddressLatch};
 
 use super::{Instruction, Operand, CPU};
 
@@ -13,6 +13,13 @@ pub struct ExecutedInstruction {
   pub scanline: i32,
   pub cycle: i32,
   pub cycle_count: u64,
+  pub vram_addr: u16,
+  pub tram_addr: u16,
+  pub ppu2002: u8,
+  pub ppu2004: u8,
+  pub ppu2007: u8,
+  pub fine_x: u8,
+  pub ppu_address_latch: PPUAddressLatch,
 }
 
 impl ExecutedInstruction {
@@ -42,9 +49,50 @@ impl ExecutedInstruction {
       self.prev_cpu.y,
       u8::from(self.prev_cpu.p),
       self.prev_cpu.s,
-      self.scanline,
+      self.scanline + 1,
       self.cycle,
       self.cycle_count
+    )
+  }
+
+  pub fn disassemble_with_ppu(&self) -> String {
+    format!(
+      "{:04X}  {:02X} {:6}{}{:32}A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} v:{:04X} t:{:04X} x:{} w:{} CYC:{:3} SL:{:<3} 2002:{:02X} 2004:{:02X} 2007:{:02X}",
+      self.prev_cpu.pc,
+      self.opcode,
+      self
+        .instruction
+        .operand()
+        .map(|op| op
+          .to_bytes()
+          .into_iter()
+          .map(|byte| format!("{:02X}", byte))
+          .collect::<Vec<_>>()
+          .join(" "))
+        .unwrap_or_default(),
+      if matches!(self.instruction, Instruction::Illegal(_, _)) {
+        "*"
+      } else {
+        " "
+      },
+      self.disassembled_instruction.to_string(),
+      self.prev_cpu.a,
+      self.prev_cpu.x,
+      self.prev_cpu.y,
+      u8::from(self.prev_cpu.p),
+      self.prev_cpu.s,
+      self.vram_addr,
+      self.tram_addr,
+      self.fine_x,
+      match self.ppu_address_latch {
+        PPUAddressLatch::High => 0,
+        PPUAddressLatch::Low => 1
+      },
+      self.cycle,
+      self.scanline,
+      self.ppu2002,
+      self.ppu2004,
+      self.ppu2007
     )
   }
 }
@@ -279,8 +327,10 @@ impl Operand {
         result: self
           .get_eval_result(state, eval, || self.get_addr_readonly(state).0)
           .map(|result| {
-            let low = state.get_cpu_mem_readonly(u16::from(*zp_addr));
-            let high = state.get_cpu_mem_readonly(u16::from(zp_addr.wrapping_add(1)));
+            let low = state.cpu_bus().read_readonly(u16::from(*zp_addr));
+            let high = state
+              .cpu_bus()
+              .read_readonly(u16::from(zp_addr.wrapping_add(1)));
             let intermediate_addr = (u16::from(high) << 8) + u16::from(low);
             (intermediate_addr, result)
           }),

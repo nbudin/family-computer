@@ -1,8 +1,7 @@
 use bitfield_struct::bitfield;
+use bytemuck::{Pod, Zeroable};
 
-use crate::cpu::Operand;
-
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum PPURegister {
   PPUCTRL,
   PPUMASK,
@@ -27,20 +26,6 @@ impl PPURegister {
       6 => Self::PPUADDR,
       7 => Self::PPUDATA,
       _ => panic!("This should never happen"),
-    }
-  }
-
-  pub fn address(&self) -> Operand {
-    match self {
-      Self::PPUCTRL => Operand::Absolute(0x2000),
-      Self::PPUMASK => Operand::Absolute(0x2001),
-      Self::PPUSTATUS => Operand::Absolute(0x2002),
-      Self::OAMADDR => Operand::Absolute(0x2003),
-      Self::OAMDATA => Operand::Absolute(0x2004),
-      Self::PPUSCROLL => Operand::Absolute(0x2005),
-      Self::PPUADDR => Operand::Absolute(0x2006),
-      Self::PPUDATA => Operand::Absolute(0x2007),
-      Self::OAMDMA => Operand::Absolute(0x4014),
     }
   }
 }
@@ -89,4 +74,13 @@ pub struct PPULoopyRegister {
   #[bits(3)]
   pub fine_y: u8,
   _unused: bool,
+}
+
+#[bitfield(u32)]
+#[derive(Pod, Zeroable)]
+pub struct PPUOAMEntry {
+  pub y: u8,
+  pub tile_id: u8,
+  pub attribute: u8,
+  pub x: u8,
 }

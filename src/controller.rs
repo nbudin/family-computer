@@ -1,5 +1,7 @@
 use bitfield_struct::bitfield;
 
+use crate::bus::Bus;
+
 #[bitfield(u8)]
 pub struct ControllerState {
   pub right: bool,
@@ -51,21 +53,26 @@ impl Controller {
     }
   }
 
-  pub fn read(&mut self) -> u8 {
-    let result = if self.shift_register & 0x80 > 0 { 1 } else { 0 };
-    self.shift_register <<= 1;
-    result
+  pub fn poll(&mut self) {
+    // it doesn't matter what you write to the controller, it always shifts the shift register
+    self.write((), 0);
   }
+}
 
-  pub fn read_readonly(&self) -> u8 {
+impl Bus<()> for Controller {
+  fn try_read_readonly(&self, _addr: ()) -> Option<u8> {
     if self.shift_register & 0x80 > 0 {
-      1
+      Some(1)
     } else {
-      0
+      Some(0)
     }
   }
 
-  pub fn poll(&mut self) {
+  fn read_side_effects(&mut self, _addr: ()) {
+    self.shift_register <<= 1;
+  }
+
+  fn write(&mut self, _addr: (), _value: u8) {
     self.shift_register = self.state.into();
   }
 }

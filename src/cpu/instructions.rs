@@ -1,6 +1,6 @@
 use strum::IntoStaticStr;
 
-use crate::machine::Machine;
+use crate::{bus::Bus, machine::Machine};
 
 use super::{Operand, CPU};
 
@@ -489,7 +489,8 @@ impl Instruction {
   }
 
   fn load_byte(state: &mut Machine) -> u8 {
-    let byte = state.get_cpu_mem(state.cpu.pc);
+    let pc = state.cpu.pc;
+    let byte = state.cpu_bus_mut().read(pc);
     CPU::set_pc(&Operand::Absolute(state.cpu.pc.wrapping_add(1)), state);
     byte
   }

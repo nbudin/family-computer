@@ -2,3 +2,4 @@
 *.nes
 !/smoketest/*.nes
 memorydump.bin
+.DS_Store

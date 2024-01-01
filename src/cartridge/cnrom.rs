@@ -1,4 +1,6 @@
-use super::{Cartridge, CartridgeMirroring, CartridgeState};
+use crate::{cpu::CPUBus, ppu::PPUMemory, rw_handle::RwHandle};
+
+use super::{BusInterceptor, Cartridge, CartridgeMirroring, CartridgeState, InterceptorResult};
 
 #[derive(Debug, Clone)]
 pub struct CNROMState {
@@ -12,6 +14,74 @@ impl CNROMState {
 }
 
 impl CartridgeState for CNROMState {}
+
+struct CNROMCPUBusInterceptor<'a> {
+  cartridge: RwHandle<'a, CNROM>,
+  bus: CPUBus<'a>,
+}
+
+impl<'a> BusInterceptor<'a, u16> for CNROMCPUBusInterceptor<'a> {
+  fn bus(&self) -> &dyn crate::bus::Bus<u16> {
+    &self.bus
+  }
+
+  fn bus_mut(&mut self) -> &mut dyn crate::bus::Bus<u16> {
+    &mut self.bus
+  }
+
+  fn intercept_read_readonly(&self, addr: u16) -> InterceptorResult<Option<u8>> {
+    if addr < 0x8000 {
+      InterceptorResult::NotIntercepted
+    } else {
+      InterceptorResult::Intercepted(Some(self.cartridge.prg_rom[usize::from(addr - 0x8000)]))
+    }
+  }
+
+  fn intercept_write(&mut self, addr: u16, value: u8) -> super::InterceptorResult<()> {
+    if addr < 0x8000 {
+      InterceptorResult::NotIntercepted
+    } else {
+      self.cartridge.get_mut().state.bank_select = value & 0b11;
+      InterceptorResult::Intercepted(())
+    }
+  }
+}
+
+struct CNROMPPUMemoryInterceptor<'a> {
+  cartridge: RwHandle<'a, CNROM>,
+  bus: PPUMemory<'a>,
+}
+
+impl<'a> BusInterceptor<'a, u16> for CNROMPPUMemoryInterceptor<'a> {
+  fn bus(&self) -> &dyn crate::bus::Bus<u16> {
+    &self.bus
+  }
+
+  fn bus_mut(&mut self) -> &mut dyn crate::bus::Bus<u16> {
+    &mut self.bus
+  }
+
+  fn intercept_read_readonly(&self, addr: u16) -> InterceptorResult<Option<u8>> {
+    if addr < 0x2000 {
+      InterceptorResult::Intercepted(Some(
+        self.cartridge.chr_rom
+          [(self.cartridge.state.bank_select as usize * 8 * 1024) + usize::from(addr)],
+      ))
+    } else {
+      InterceptorResult::NotIntercepted
+    }
+  }
+
+  fn intercept_write(&mut self, addr: u16, value: u8) -> InterceptorResult<()> {
+    if addr < 0x2000 {
+      let addr = (self.cartridge.state.bank_select as usize * 8 * 1024) + usize::from(addr);
+      self.cartridge.get_mut().chr_rom[addr] = value;
+      InterceptorResult::Intercepted(())
+    } else {
+      InterceptorResult::NotIntercepted
+    }
+  }
+}
 
 #[derive(Debug, Clone)]
 pub struct CNROM {
@@ -49,38 +119,41 @@ impl Cartridge for CNROM {
     }
   }
 
-  fn get_cpu_mem(&self, addr: u16) -> Option<u8> {
-    if addr < 0x8000 {
-      None
-    } else {
-      Some(self.prg_rom[usize::from(addr - 0x8000)])
-    }
+  fn cpu_bus_interceptor<'a>(&'a self, bus: CPUBus<'a>) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    Box::new(CNROMCPUBusInterceptor {
+      cartridge: RwHandle::ReadOnly(self),
+      bus,
+    })
   }
 
-  fn set_cpu_mem(&mut self, addr: u16, value: u8) -> bool {
-    if addr < 0x8000 {
-      false
-    } else {
-      self.state.bank_select = value & 0b11;
-      true
-    }
+  fn cpu_bus_interceptor_mut<'a>(
+    &'a mut self,
+    bus: CPUBus<'a>,
+  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    Box::new(CNROMCPUBusInterceptor {
+      cartridge: RwHandle::ReadWrite(self),
+      bus,
+    })
   }
 
-  fn get_ppu_mem(&self, addr: u16) -> Option<u8> {
-    if addr < 0x2000 {
-      Some(self.chr_rom[(self.state.bank_select as usize * 8 * 1024) + usize::from(addr)])
-    } else {
-      None
-    }
+  fn ppu_memory_interceptor<'a>(
+    &'a self,
+    bus: PPUMemory<'a>,
+  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    Box::new(CNROMPPUMemoryInterceptor {
+      cartridge: RwHandle::ReadOnly(self),
+      bus,
+    })
   }
 
-  fn set_ppu_mem(&mut self, addr: u16, value: u8) -> bool {
-    if addr < 0x2000 {
-      self.chr_rom[(self.state.bank_select as usize * 8 * 1024) + usize::from(addr)] = value;
-      true
-    } else {
-      false
-    }
+  fn ppu_memory_interceptor_mut<'a>(
+    &'a mut self,
+    bus: PPUMemory<'a>,
+  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    Box::new(CNROMPPUMemoryInterceptor {
+      cartridge: RwHandle::ReadWrite(self),
+      bus,
+    })
   }
 
   fn get_mirroring(&self) -> CartridgeMirroring {
