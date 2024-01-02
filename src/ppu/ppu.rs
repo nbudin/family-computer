@@ -96,36 +96,36 @@ impl PPU {
       state.ppu.update_shifters();
 
       PPU::update_bg_registers(state);
+    }
 
-      if state.ppu.cycle == 256 {
-        state.ppu.increment_scroll_y();
-      }
+    if state.ppu.cycle == 256 {
+      state.ppu.increment_scroll_y();
+    }
 
-      if state.ppu.cycle == 257 {
-        state.ppu.load_background_shifters();
-        state.ppu.transfer_address_x();
-      }
+    if state.ppu.cycle == 257 {
+      state.ppu.load_background_shifters();
+      state.ppu.transfer_address_x();
+    }
 
-      if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
-        state.ppu.transfer_address_y();
-      }
+    if state.ppu.cycle == 338 || state.ppu.cycle == 340 {
+      // superfluous reads of tile id at end of scanline
+      let addr = 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff);
+      let next_tile_id = state.ppu_memory_mut().read(addr);
+      state.ppu.bg_next_tile_id = next_tile_id;
+    }
 
-      if state.ppu.cycle == 338 || state.ppu.cycle == 340 {
-        // superfluous reads of tile id at end of scanline
-        let addr = 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff);
-        let next_tile_id = state.ppu_memory_mut().read(addr);
-        state.ppu.bg_next_tile_id = next_tile_id;
-      }
+    if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
+      state.ppu.transfer_address_y();
+    }
 
-      // Foreground rendering =========================================================
-      if state.ppu.cycle == 257 && state.ppu.scanline >= 0 {
-        PPU::evaluate_scanline_sprites(state);
-      }
+    // Foreground rendering =========================================================
+    if state.ppu.cycle == 257 && state.ppu.scanline >= 0 {
+      PPU::evaluate_scanline_sprites(state);
+    }
 
-      if state.ppu.cycle == 340 {
-        for sprite_index in 0..state.ppu.sprite_scanline.len() {
-          PPU::load_sprite_data_for_next_scanline(state, sprite_index);
-        }
+    if state.ppu.cycle == 340 {
+      for sprite_index in 0..state.ppu.sprite_scanline.len() {
+        PPU::load_sprite_data_for_next_scanline(state, sprite_index);
       }
     }
   }
@@ -149,18 +149,18 @@ impl PPU {
     state.ppu.status_register_read_last_tick = state.ppu.status_register_read_this_tick;
     state.ppu.status_register_read_this_tick = false;
 
-    if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
-      PPU::start_frame(state);
-    }
-
-    if state.ppu.frame_count % 2 == 1 && state.ppu.scanline == 0 && state.ppu.cycle == 0 {
-      // Odd frame cycle skip
-      if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
-        state.ppu.cycle = 1;
-      }
-    }
-
     if state.ppu.scanline >= -1 && state.ppu.scanline < 240 {
+      if state.ppu.scanline == 0 && state.ppu.cycle == 0 && state.ppu.frame_count % 2 == 1 {
+        // Odd frame cycle skip
+        if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
+          state.ppu.cycle = 1;
+        }
+      }
+
+      if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
+        PPU::start_frame(state);
+      }
+
       PPU::update_registers_on_renderable_scanline(state);
     }
 

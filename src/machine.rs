@@ -143,21 +143,24 @@ impl Machine {
           }
         }
       } else {
-        if let Some(disassembly_writer) = &mut self.disassembly_writer {
-          if let Some(executed_instruction) = &self.last_executed_instruction {
-            if self.cpu.wait_cycles == 0 {
-              disassembly_writer
-                .write_fmt(format_args!("{}\n", executed_instruction.disassemble()))
-                .unwrap();
-            }
-          }
-        }
-
+        self.log_last_executed_instruction();
         self.tick_cpu();
       }
     }
 
     self.tick_ppu(pixbuf);
+  }
+
+  fn log_last_executed_instruction(&mut self) {
+    if let Some(disassembly_writer) = &mut self.disassembly_writer {
+      if let Some(executed_instruction) = &self.last_executed_instruction {
+        if self.cpu.wait_cycles == 0 {
+          disassembly_writer
+            .write_fmt(format_args!("{}\n", executed_instruction.disassemble()))
+            .unwrap();
+        }
+      }
+    }
   }
 
   pub fn nmi(&mut self) {
