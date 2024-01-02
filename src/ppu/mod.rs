@@ -1,4 +1,5 @@
 mod drawing;
+mod pixbuf;
 mod ppu;
 mod ppu_cpu_bus;
 mod ppu_memory;
@@ -6,6 +7,7 @@ mod registers;
 mod scrolling;
 mod sprites;
 
+pub use pixbuf::*;
 pub use ppu::*;
 pub use ppu_cpu_bus::*;
 pub use ppu_memory::*;
@@ -16,12 +18,14 @@ pub use sprites::*;
 mod tests {
   use std::io::BufReader;
 
-  use crate::{bus::Bus, gui::PIXEL_BUFFER_SIZE, ines_rom::INESRom, machine::Machine};
+  use crate::{bus::Bus, ines_rom::INESRom, machine::Machine};
+
+  use super::Pixbuf;
 
   fn run_blargg_ppu_test(rom_data: &[u8]) -> u8 {
     let rom = INESRom::from_reader(&mut BufReader::new(&rom_data[..])).unwrap();
     let mut machine = Machine::from_rom(rom);
-    let mut fake_pixbuf = [0; PIXEL_BUFFER_SIZE];
+    let mut fake_pixbuf = Pixbuf::new();
     let mut result: u8;
 
     loop {

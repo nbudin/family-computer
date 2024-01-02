@@ -23,7 +23,7 @@ impl PPURegister {
       5 => Self::PPUSCROLL,
       6 => Self::PPUADDR,
       7 => Self::PPUDATA,
-      _ => panic!("This should never happen"),
+      _ => panic!("Invalid PPU register value: {}", addr),
     }
   }
 }

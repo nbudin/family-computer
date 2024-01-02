@@ -7,9 +7,8 @@ use crate::{
   controller::Controller,
   cpu::{CPUBus, ExecutedInstruction, CPU},
   dma::DMA,
-  gui::PIXEL_BUFFER_SIZE,
   ines_rom::INESRom,
-  ppu::{PPUMemory, PPU},
+  ppu::{PPUMemory, Pixbuf, PPU},
   rw_handle::RwHandle,
 };
 
@@ -97,7 +96,7 @@ impl Machine {
     machine
   }
 
-  pub fn execute_frame(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
+  pub fn execute_frame(&mut self, pixbuf: &mut Pixbuf) {
     loop {
       self.tick(pixbuf);
 
@@ -118,7 +117,7 @@ impl Machine {
     }
   }
 
-  pub fn tick_ppu(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
+  pub fn tick_ppu(&mut self, pixbuf: &mut Pixbuf) {
     let nmi_set = PPU::tick(self, pixbuf);
     self.ppu_cycle_count += 1;
 
@@ -127,7 +126,7 @@ impl Machine {
     }
   }
 
-  pub fn tick(&mut self, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) {
+  pub fn tick(&mut self, pixbuf: &mut Pixbuf) {
     if self.ppu_cycle_count % 3 == 0 {
       if self.dma.transfer {
         if self.dma.dummy {

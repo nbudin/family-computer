@@ -1,10 +1,6 @@
-use crate::{
-  bus::Bus,
-  gui::{BYTES_PER_PIXEL, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
-  machine::Machine,
-};
+use crate::{bus::Bus, machine::Machine, palette::PALETTE};
 
-use super::PPU;
+use super::{Pixbuf, SpritePriority, PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_WIDTH, PPU};
 
 impl PPU {
   pub fn get_palette_color(machine: &Machine, palette_index: u16, color_index: u16) -> u8 {
@@ -27,11 +23,54 @@ impl PPU {
     (bg_pixel as u8, bg_palette as u8)
   }
 
-  pub fn set_pixel(pixbuf: &mut [u8; PIXEL_BUFFER_SIZE], color: [u8; 3], x: u32, y: u32) {
-    let offset = (x + (y * PIXEL_BUFFER_WIDTH)) * BYTES_PER_PIXEL;
-    let pixel = pixbuf
-      .get_mut((offset as usize)..((offset + BYTES_PER_PIXEL) as usize))
-      .unwrap();
-    pixel.copy_from_slice(&[color[0], color[1], color[2], 255]);
+  pub fn draw_current_pixel(state: &mut Machine, pixbuf: &mut Pixbuf) {
+    let (bg_pixel, bg_palette) = if state.ppu.mask.render_background() {
+      PPU::get_current_pixel_bg_color_and_palette(state)
+    } else {
+      (0, 0)
+    };
+
+    let (fg_pixel, fg_palette, priority, sprite0) = if state.ppu.mask.render_sprites() {
+      PPU::get_current_pixel_fg_color_palette_priority_and_sprite0(state)
+    } else {
+      (0, 0, SpritePriority::Background, false)
+    };
+
+    let (pixel, palette) = if bg_pixel == 0 && fg_pixel == 0 {
+      (0, 0)
+    } else if bg_pixel == 0 {
+      (fg_pixel, fg_palette)
+    } else if fg_pixel == 0 {
+      (bg_pixel, bg_palette)
+    } else {
+      if sprite0 {
+        if state.ppu.mask.render_background() && state.ppu.mask.render_sprites() {
+          if !(state.ppu.mask.render_background_left() || state.ppu.mask.render_sprites_left()) {
+            if state.ppu.cycle >= 9 && state.ppu.cycle < 258 {
+              state.ppu.status.set_sprite_zero_hit(true);
+            }
+          } else {
+            if state.ppu.cycle >= 1 && state.ppu.cycle < 258 {
+              state.ppu.status.set_sprite_zero_hit(true);
+            }
+          }
+        }
+      }
+
+      if priority == SpritePriority::Foreground {
+        (fg_pixel, fg_palette)
+      } else {
+        (bg_pixel, bg_palette)
+      }
+    };
+
+    let color =
+      PALETTE[PPU::get_palette_color(state, palette as u16, pixel as u16) as usize % PALETTE.len()];
+
+    let x = state.ppu.cycle - 1;
+    let y = state.ppu.scanline;
+    if x >= 0 && y >= 0 && x < PIXEL_BUFFER_WIDTH as i32 && y < PIXEL_BUFFER_HEIGHT as i32 {
+      pixbuf.set_pixel(color, u32::try_from(x).unwrap(), u32::try_from(y).unwrap());
+    }
   }
 }

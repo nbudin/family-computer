@@ -1,14 +1,9 @@
-use crate::{
-  bus::Bus,
-  gui::{PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_SIZE, PIXEL_BUFFER_WIDTH},
-  machine::Machine,
-  palette::PALETTE,
-};
+use crate::{bus::Bus, machine::Machine};
 
 use super::{
   registers::{PPUControlRegister, PPULoopyRegister, PPUMaskRegister, PPUStatusRegister},
   sprites::PPUOAMEntry,
-  ActiveSprite, SpritePriority,
+  ActiveSprite, Pixbuf,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -85,24 +80,17 @@ impl PPU {
     }
   }
 
-  fn update_visible_scanline(state: &mut Machine) {
-    if state.ppu.frame_count % 2 == 1 && state.ppu.scanline == 0 && state.ppu.cycle == 0 {
-      // Odd frame cycle skip
-      if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
-        state.ppu.cycle = 1;
-      }
-    }
+  fn start_frame(state: &mut Machine) {
+    state.ppu.status.set_vertical_blank(false);
+    state.ppu.status.set_sprite_zero_hit(false);
+    state.ppu.status.set_sprite_overflow(false);
 
-    if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
-      state.ppu.status.set_vertical_blank(false);
-      state.ppu.status.set_sprite_zero_hit(false);
-      state.ppu.status.set_sprite_overflow(false);
+    state.ppu.sprite_shifter_pattern_low = [0; 8];
+    state.ppu.sprite_shifter_pattern_high = [0; 8];
+  }
 
-      state.ppu.sprite_shifter_pattern_low = [0; 8];
-      state.ppu.sprite_shifter_pattern_high = [0; 8];
-    }
-
-    if (state.ppu.cycle >= 2 && state.ppu.cycle < 258)
+  fn update_registers_on_renderable_scanline(state: &mut Machine) {
+    if (state.ppu.cycle >= 1 && state.ppu.cycle < 258)
       || (state.ppu.cycle >= 321 && state.ppu.cycle < 338)
     {
       state.ppu.update_shifters();
@@ -142,105 +130,54 @@ impl PPU {
     }
   }
 
-  fn draw_current_pixel(state: &mut Machine, pixbuf: &mut [u8; 245760]) {
-    let (bg_pixel, bg_palette) = if state.ppu.mask.render_background() {
-      PPU::get_current_pixel_bg_color_and_palette(state)
-    } else {
-      (0, 0)
-    };
-
-    let (fg_pixel, fg_palette, priority, sprite0) = if state.ppu.mask.render_sprites() {
-      PPU::get_current_pixel_fg_color_palette_priority_and_sprite0(state)
-    } else {
-      (0, 0, SpritePriority::Background, false)
-    };
-
-    let (pixel, palette) = if bg_pixel == 0 && fg_pixel == 0 {
-      (0, 0)
-    } else if bg_pixel == 0 {
-      (fg_pixel, fg_palette)
-    } else if fg_pixel == 0 {
-      (bg_pixel, bg_palette)
-    } else {
-      if sprite0 {
-        if state.ppu.mask.render_background() && state.ppu.mask.render_sprites() {
-          if !(state.ppu.mask.render_background_left() || state.ppu.mask.render_sprites_left()) {
-            if state.ppu.cycle >= 9 && state.ppu.cycle < 258 {
-              state.ppu.status.set_sprite_zero_hit(true);
-            }
-          } else {
-            if state.ppu.cycle >= 1 && state.ppu.cycle < 258 {
-              state.ppu.status.set_sprite_zero_hit(true);
-            }
-          }
-        }
-      }
-
-      if priority == SpritePriority::Foreground {
-        (fg_pixel, fg_palette)
-      } else {
-        (bg_pixel, bg_palette)
-      }
-    };
-
-    let color =
-      PALETTE[PPU::get_palette_color(state, palette as u16, pixel as u16) as usize % PALETTE.len()];
-
-    PPU::set_pixel(
-      pixbuf,
-      color,
-      u32::try_from(state.ppu.cycle - 1).unwrap(),
-      u32::try_from(state.ppu.scanline).unwrap(),
-    );
-  }
-
-  fn update_cycle_and_scanline(state: &mut Machine) {
+  fn increment_cycle_and_scanline(state: &mut Machine) {
     state.ppu.cycle += 1;
+
     if state.ppu.cycle >= 341 {
       state.ppu.cycle = 0;
       state.ppu.scanline += 1;
+
       if state.ppu.scanline >= 261 {
-        state.ppu.frame_count += 1;
         state.ppu.scanline = -1;
+        state.ppu.frame_count += 1;
       }
     }
   }
 
-  pub fn tick(state: &mut Machine, pixbuf: &mut [u8; PIXEL_BUFFER_SIZE]) -> bool {
-    let mut nmi_set = false;
+  pub fn tick(state: &mut Machine, pixbuf: &mut Pixbuf) -> bool {
+    let mut trigger_nmi = false;
     state.ppu.status_register_read_last_tick = state.ppu.status_register_read_this_tick;
     state.ppu.status_register_read_this_tick = false;
 
-    if state.ppu.scanline >= -1 && state.ppu.scanline < 240 {
-      PPU::update_visible_scanline(state);
+    if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
+      PPU::start_frame(state);
     }
 
-    if state.ppu.scanline == 240 {
-      // post render scanline - do nothing
-    }
-
-    if state.ppu.scanline >= 241 && state.ppu.scanline < 261 {
-      if state.ppu.scanline == 241 && state.ppu.cycle == 1 {
-        // emulate a race condition in the PPU: reading the status register suppresses vblank next tick and nmi this tick
-        if !state.ppu.status_register_read_last_tick {
-          state.ppu.status.set_vertical_blank(true);
-        }
-        if !state.ppu.status_register_read_this_tick && state.ppu.control.enable_nmi() {
-          nmi_set = true;
-        }
+    if state.ppu.frame_count % 2 == 1 && state.ppu.scanline == 0 && state.ppu.cycle == 0 {
+      // Odd frame cycle skip
+      if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
+        state.ppu.cycle = 1;
       }
     }
 
-    if state.ppu.cycle >= 1
-      && state.ppu.scanline >= 0
-      && state.ppu.cycle <= PIXEL_BUFFER_WIDTH as i32
-      && state.ppu.scanline < PIXEL_BUFFER_HEIGHT as i32
-    {
-      PPU::draw_current_pixel(state, pixbuf);
+    if state.ppu.scanline >= -1 && state.ppu.scanline < 240 {
+      PPU::update_registers_on_renderable_scanline(state);
     }
 
-    PPU::update_cycle_and_scanline(state);
+    if state.ppu.scanline == 241 && state.ppu.cycle == 1 {
+      // emulate a race condition in the PPU: reading the status register suppresses vblank next tick and nmi this tick
+      if !state.ppu.status_register_read_last_tick {
+        state.ppu.status.set_vertical_blank(true);
+      }
 
-    nmi_set
+      if state.ppu.control.enable_nmi() && !state.ppu.status_register_read_this_tick {
+        trigger_nmi = true;
+      }
+    }
+
+    PPU::draw_current_pixel(state, pixbuf);
+    PPU::increment_cycle_and_scanline(state);
+
+    trigger_nmi
   }
 }

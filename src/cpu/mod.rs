@@ -45,7 +45,7 @@ mod tests {
     }
   }
 
-  use crate::{gui::PIXEL_BUFFER_SIZE, ines_rom::INESRom, machine::Machine};
+  use crate::{ines_rom::INESRom, machine::Machine, ppu::Pixbuf};
 
   #[test]
   fn nestest_smoke_test() {
@@ -54,12 +54,10 @@ mod tests {
     let rom = INESRom::from_reader(&mut BufReader::new(&nestest_data[..])).unwrap();
 
     let mut machine = Machine::from_rom(rom);
-    // machine.cpu_cycle_count = 7;
-    // machine.ppu.cycle = 21;
     machine.cpu.pc = 0xc000;
     machine.cpu.p = 0x24.into();
 
-    let mut fake_pixbuf = [0; PIXEL_BUFFER_SIZE];
+    let mut fake_pixbuf = Pixbuf::new();
     let disasm_writer = StringWriter::new();
     machine.disassembly_writer = Some(Box::new(disasm_writer.clone()));
 

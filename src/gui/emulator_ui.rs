@@ -141,36 +141,40 @@ impl Application for EmulatorUI {
   }
 
   fn subscription(&self) -> Subscription<Message> {
-    iced::Subscription::batch([
-      iced::subscription::events_with(|event, _status| match event {
-        iced::Event::Keyboard(event) => match event {
-          keyboard::Event::KeyPressed {
-            key_code,
-            modifiers: _,
-          } => {
-            if let Some(button) = key_code_to_controller_button(key_code) {
-              Some(Message::ControllerButtonChanged(button, true))
-            } else {
-              match key_code {
-                KeyCode::R => Some(Message::EmulatorStateChangeRequested(EmulatorState::Run)),
-                KeyCode::P => Some(Message::EmulatorStateChangeRequested(EmulatorState::Pause)),
-                KeyCode::F => Some(Message::EmulatorStateChangeRequested(
-                  EmulatorState::RunUntilNextFrame,
-                )),
-                KeyCode::I => Some(Message::EmulatorStateChangeRequested(
-                  EmulatorState::RunUntilNextInstruction,
-                )),
-                _ => None,
-              }
+    fn handle_key_event(event: iced::keyboard::Event) -> Option<Message> {
+      match event {
+        keyboard::Event::KeyPressed {
+          key_code,
+          modifiers: _,
+        } => {
+          if let Some(button) = key_code_to_controller_button(key_code) {
+            Some(Message::ControllerButtonChanged(button, true))
+          } else {
+            match key_code {
+              KeyCode::R => Some(Message::EmulatorStateChangeRequested(EmulatorState::Run)),
+              KeyCode::P => Some(Message::EmulatorStateChangeRequested(EmulatorState::Pause)),
+              KeyCode::F => Some(Message::EmulatorStateChangeRequested(
+                EmulatorState::RunUntilNextFrame,
+              )),
+              KeyCode::I => Some(Message::EmulatorStateChangeRequested(
+                EmulatorState::RunUntilNextInstruction,
+              )),
+              _ => None,
             }
           }
-          keyboard::Event::KeyReleased {
-            key_code,
-            modifiers: _,
-          } => key_code_to_controller_button(key_code)
-            .map(|button| Message::ControllerButtonChanged(button, false)),
-          _ => None,
-        },
+        }
+        keyboard::Event::KeyReleased {
+          key_code,
+          modifiers: _,
+        } => key_code_to_controller_button(key_code)
+          .map(|button| Message::ControllerButtonChanged(button, false)),
+        _ => None,
+      }
+    }
+
+    iced::Subscription::batch([
+      iced::subscription::events_with(|event, _status| match event {
+        iced::Event::Keyboard(event) => handle_key_event(event),
         _ => None,
       }),
       iced::time::every(Duration::from_secs_f64(1.0 / 60.0)).map(|_| Message::Tick),
