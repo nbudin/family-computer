@@ -1,4 +1,5 @@
 mod drawing;
+mod palette;
 mod pixbuf;
 mod ppu;
 mod ppu_cpu_bus;

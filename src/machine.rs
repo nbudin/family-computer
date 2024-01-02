@@ -1,4 +1,9 @@
-use std::{any::Any, fmt::Debug, io::Write};
+use std::{
+  any::Any,
+  fmt::Debug,
+  io::Write,
+  sync::{Arc, RwLock},
+};
 
 use crate::{
   bus::Bus,
@@ -42,7 +47,7 @@ pub struct Machine {
   pub cpu_cycle_count: u64,
   pub ppu_cycle_count: u64,
   pub last_executed_instruction: Option<ExecutedInstruction>,
-  pub disassembly_writer: Option<Box<dyn DisassemblyWriter>>,
+  pub disassembly_writer: Option<Arc<RwLock<dyn DisassemblyWriter + Send + Sync>>>,
 }
 
 impl Debug for Machine {
@@ -56,23 +61,6 @@ impl Debug for Machine {
       .field("ppu_cycle_count", &self.ppu_cycle_count)
       .field("last_executed_instruction", &self.last_executed_instruction)
       .finish_non_exhaustive()
-  }
-}
-
-impl Clone for Machine {
-  fn clone(&self) -> Self {
-    Self {
-      work_ram: self.work_ram.clone(),
-      cartridge: dyn_clone::clone_box(&*self.cartridge),
-      cpu: self.cpu.clone(),
-      ppu: self.ppu.clone(),
-      controllers: self.controllers.clone(),
-      dma: self.dma.clone(),
-      cpu_cycle_count: self.cpu_cycle_count.clone(),
-      ppu_cycle_count: self.ppu_cycle_count.clone(),
-      last_executed_instruction: None,
-      disassembly_writer: None,
-    }
   }
 }
 
@@ -97,6 +85,7 @@ impl Machine {
   }
 
   pub fn execute_frame(&mut self, pixbuf: &mut Pixbuf) {
+    println!("Executing frame");
     loop {
       self.tick(pixbuf);
 
@@ -154,6 +143,8 @@ impl Machine {
       if let Some(executed_instruction) = &self.last_executed_instruction {
         if self.cpu.wait_cycles == 0 {
           disassembly_writer
+            .write()
+            .unwrap()
             .write_fmt(format_args!("{}\n", executed_instruction.disassemble()))
             .unwrap();
         }

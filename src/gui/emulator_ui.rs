@@ -1,27 +1,30 @@
-use std::time::{Duration, Instant};
+use std::{
+  convert::Infallible,
+  sync::{Arc, Mutex},
+  thread,
+  time::Duration,
+};
 
 use iced::{
   executor,
+  futures::channel::mpsc::Sender,
   keyboard::{self, KeyCode},
   theme::Palette,
   widget::{column, image, row, text, vertical_space},
   Application, Color, Command, Font, Length, Subscription, Theme,
 };
-use strum::IntoStaticStr;
 
-use crate::{bus::Bus, controller::ControllerButton, machine::Machine};
+use crate::{
+  controller::ControllerButton,
+  emulator::{
+    EmulationInboundMessage, EmulationOutboundMessage, Emulator, EmulatorState, MachineState,
+  },
+  machine::Machine,
+};
 
 use super::CRTScreen;
 
 const PIXEL_NES_FONT: Font = Font::with_name("Pixel NES");
-
-#[derive(Debug, Clone, Copy, IntoStaticStr)]
-pub enum EmulatorState {
-  Run,
-  Pause,
-  RunUntilNextFrame,
-  RunUntilNextInstruction,
-}
 
 pub struct EmulatorUIFlags {
   machine: Machine,
@@ -48,19 +51,20 @@ fn key_code_to_controller_button(key_code: KeyCode) -> Option<ControllerButton> 
 }
 
 pub struct EmulatorUI {
-  emulator_state: EmulatorState,
-  machine: Machine,
+  emulator: Arc<Mutex<Emulator>>,
+  emulator_sender: crossbeam_channel::Sender<EmulationInboundMessage>,
   crt_screen: CRTScreen,
-  last_tick: Instant,
   last_tick_duration: Duration,
+  last_machine_state: MachineState,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Message {
   ControllerButtonChanged(ControllerButton, bool),
   EmulatorStateChangeRequested(EmulatorState),
-  Tick,
   FontLoaded(Result<(), iced::font::Error>),
+  FrameReady,
+  MachineStateChanged(MachineState),
 }
 
 impl Application for EmulatorUI {
@@ -70,13 +74,16 @@ impl Application for EmulatorUI {
   type Theme = Theme;
 
   fn new(flags: EmulatorUIFlags) -> (EmulatorUI, Command<Self::Message>) {
+    let crt_screen = CRTScreen::new();
+    let (emulator, emulator_sender) = Emulator::new(flags.machine, crt_screen.pixbuf.clone());
+
     (
       EmulatorUI {
-        emulator_state: EmulatorState::Pause,
-        machine: flags.machine,
-        crt_screen: CRTScreen::new(),
-        last_tick: Instant::now(),
+        emulator: Arc::new(Mutex::new(emulator)),
+        emulator_sender,
+        crt_screen,
         last_tick_duration: Duration::from_millis(1000),
+        last_machine_state: MachineState::default(),
       },
       iced::font::load(include_bytes!("./Pixel_NES.otf").as_slice()).map(Message::FontLoaded),
     )
@@ -100,41 +107,29 @@ impl Application for EmulatorUI {
     match message {
       Message::FontLoaded(_) => Command::none(),
       Message::ControllerButtonChanged(button, pressed) => {
-        self.machine.controllers[0].set_button_state(button, pressed);
+        self
+          .emulator_sender
+          .send(EmulationInboundMessage::ControllerButtonChanged(
+            button, pressed,
+          ))
+          .unwrap();
         Command::none()
       }
       Message::EmulatorStateChangeRequested(new_state) => {
-        self.emulator_state = new_state;
+        self
+          .emulator_sender
+          .send(EmulationInboundMessage::EmulatorStateChangeRequested(
+            new_state,
+          ))
+          .unwrap();
         Command::none()
       }
-      Message::Tick => {
-        let now = Instant::now();
-        self.last_tick_duration = now - self.last_tick;
-        self.last_tick = now;
-
-        match self.emulator_state {
-          EmulatorState::Run => {
-            self.machine.execute_frame(&mut self.crt_screen.pixbuf);
-          }
-          EmulatorState::Pause => {}
-          EmulatorState::RunUntilNextFrame => {
-            self.machine.execute_frame(&mut self.crt_screen.pixbuf);
-            self.emulator_state = EmulatorState::Pause;
-          }
-          EmulatorState::RunUntilNextInstruction => {
-            let start_cycles = self.machine.cpu_cycle_count;
-            loop {
-              self.machine.tick(&mut self.crt_screen.pixbuf);
-
-              if self.machine.cpu_cycle_count > start_cycles {
-                break;
-              }
-            }
-
-            self.emulator_state = EmulatorState::Pause;
-          }
-        }
-
+      Message::FrameReady => {
+        // TODO do we need to actually do anything here?
+        Command::none()
+      }
+      Message::MachineStateChanged(machine_state) => {
+        self.last_machine_state = machine_state;
         Command::none()
       }
     }
@@ -172,12 +167,35 @@ impl Application for EmulatorUI {
       }
     }
 
+    async fn run_emulator_async(
+      emulator: Arc<Mutex<Emulator>>,
+      sender: Sender<EmulationOutboundMessage>,
+    ) -> Infallible {
+      thread::spawn(move || emulator.lock().unwrap().run(sender))
+        .join()
+        .unwrap()
+    }
+
+    let emulator = self.emulator.clone();
+
     iced::Subscription::batch([
       iced::subscription::events_with(|event, _status| match event {
         iced::Event::Keyboard(event) => handle_key_event(event),
         _ => None,
       }),
-      iced::time::every(Duration::from_secs_f64(1.0 / 60.0)).map(|_| Message::Tick),
+      iced::subscription::channel("emulator-outbound", 64, |sender| {
+        run_emulator_async(emulator, sender)
+      })
+      .map(|emulation_message| {
+        println!("{:?}", emulation_message);
+
+        match emulation_message {
+          EmulationOutboundMessage::FrameReady => Message::FrameReady,
+          EmulationOutboundMessage::MachineStateChanged(machine_state) => {
+            Message::MachineStateChanged(machine_state)
+          }
+        }
+      }),
     ])
   }
 
@@ -186,17 +204,14 @@ impl Application for EmulatorUI {
       text(format!("{:.02} FPS", 1.0 / self.last_tick_duration.as_secs_f32()).as_str())
         .font(PIXEL_NES_FONT)
         .size(20);
-    let state_text = text(<&'static str>::from(self.emulator_state).to_string())
+    let state_text = text(<&'static str>::from(self.last_machine_state.emulator_state).to_string())
       .font(PIXEL_NES_FONT)
       .size(20);
+    let machine = &self.last_machine_state;
     let registers_text = text(
       format!(
         "A-{:02X} X-{:02X} Y-{:02X} S-{:02X}\nPC-{:04X}",
-        self.machine.cpu.a,
-        self.machine.cpu.x,
-        self.machine.cpu.y,
-        self.machine.cpu.s,
-        self.machine.cpu.pc
+        machine.cpu.a, machine.cpu.x, machine.cpu.y, machine.cpu.s, machine.cpu.pc
       )
       .as_str(),
     )
@@ -205,12 +220,12 @@ impl Application for EmulatorUI {
     let cpu_status_text = text(
       format!(
         "N-{} V-{} D-{} I-{} Z-{} C-{}",
-        u8::from(self.machine.cpu.p.negative_flag()),
-        u8::from(self.machine.cpu.p.overflow_flag()),
-        u8::from(self.machine.cpu.p.decimal_flag()),
-        u8::from(self.machine.cpu.p.interrupt_disable()),
-        u8::from(self.machine.cpu.p.zero_flag()),
-        u8::from(self.machine.cpu.p.carry_flag()),
+        u8::from(machine.cpu.p.negative_flag()),
+        u8::from(machine.cpu.p.overflow_flag()),
+        u8::from(machine.cpu.p.decimal_flag()),
+        u8::from(machine.cpu.p.interrupt_disable()),
+        u8::from(machine.cpu.p.zero_flag()),
+        u8::from(machine.cpu.p.carry_flag()),
       )
       .as_str(),
     )
@@ -220,13 +235,13 @@ impl Application for EmulatorUI {
     let ppu_status_text = text(
       format!(
         "Scanl {}\nCycle {}\n$2002-{:02X}\n$2004-{:02X}\n$2007-{:02X}\nv:{:04X} t:{:04X}",
-        self.machine.ppu.scanline,
-        self.machine.ppu.cycle,
-        self.machine.cpu_bus().read_readonly(0x2002),
-        self.machine.cpu_bus().read_readonly(0x2004),
-        self.machine.cpu_bus().read_readonly(0x2007),
-        u16::from(self.machine.ppu.vram_addr),
-        u16::from(self.machine.ppu.tram_addr)
+        machine.scanline,
+        machine.cycle,
+        machine.mem2002,
+        machine.mem2004,
+        machine.mem2007,
+        u16::from(machine.vram_addr),
+        u16::from(machine.tram_addr)
       )
       .as_str(),
     )

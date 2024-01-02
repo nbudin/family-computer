@@ -14,34 +14,34 @@ pub use operand::*;
 mod tests {
   use similar_asserts::assert_eq;
   use std::{
-    cell::RefCell,
     io::{BufReader, Write},
+    sync::{Arc, RwLock},
   };
 
   #[derive(Clone, Debug)]
   struct StringWriter {
-    bytes: std::rc::Rc<RefCell<Vec<u8>>>,
+    bytes: Arc<RwLock<Vec<u8>>>,
   }
 
   impl StringWriter {
     pub fn new() -> Self {
       StringWriter {
-        bytes: std::rc::Rc::new(RefCell::new(Vec::with_capacity(1 * 1024 * 1024))),
+        bytes: Arc::new(RwLock::new(Vec::with_capacity(1 * 1024 * 1024))),
       }
     }
 
     pub fn into_string(self) -> String {
-      String::from_utf8(self.bytes.take()).unwrap()
+      String::from_utf8(Arc::try_unwrap(self.bytes).unwrap().into_inner().unwrap()).unwrap()
     }
   }
 
   impl Write for StringWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-      self.bytes.borrow_mut().write(buf)
+      self.bytes.write().unwrap().write(buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-      self.bytes.borrow_mut().flush()
+      self.bytes.write().unwrap().flush()
     }
   }
 
@@ -59,7 +59,7 @@ mod tests {
 
     let mut fake_pixbuf = Pixbuf::new();
     let disasm_writer = StringWriter::new();
-    machine.disassembly_writer = Some(Box::new(disasm_writer.clone()));
+    machine.disassembly_writer = Some(Arc::new(RwLock::new(disasm_writer.clone())));
 
     // weird PPU behavior tests start here and I'm not sure those are valid
     while machine.cpu_cycle_count < 26520 {

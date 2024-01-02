@@ -4,14 +4,19 @@ mod cartridge;
 pub mod controller;
 mod cpu;
 mod dma;
+mod emulator;
 mod gui;
 mod ines_rom;
 mod machine;
-mod palette;
 mod ppu;
 pub mod rw_handle;
 
-use std::{env, io::BufWriter, path::Path};
+use std::{
+  env,
+  io::BufWriter,
+  path::Path,
+  sync::{Arc, RwLock},
+};
 
 use iced::{Application, Settings};
 use ines_rom::INESRom;
@@ -36,7 +41,7 @@ pub fn main() -> Result<(), iced::Error> {
 
   if !env::var("DISASSEMBLE").unwrap_or_default().is_empty() {
     let disassembly_writer = BufWriter::new(stdout);
-    machine.disassembly_writer = Some(Box::new(disassembly_writer));
+    machine.disassembly_writer = Some(Arc::new(RwLock::new(disassembly_writer)));
   }
 
   EmulatorUI::run(Settings::with_flags(EmulatorUIFlags::new(machine)))
