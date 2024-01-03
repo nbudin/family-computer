@@ -101,8 +101,6 @@ impl Machine {
       self.tick(pixbuf);
 
       if self.ppu.cycle == 1 && self.ppu.scanline == -1 {
-        // println!("PPU cycles: {}", self.ppu_cycle_count);
-        // panic!("O noes i am ded");
         break;
       }
     }

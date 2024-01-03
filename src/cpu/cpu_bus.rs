@@ -77,6 +77,7 @@ impl Bus<u16> for CPUBus<'_> {
       let dma = self.dma.get_mut();
       dma.page = value;
       dma.addr = 0;
+      dma.transfer = true;
     } else if addr < 0x4016 {
       // TODO APU registers
       ()
