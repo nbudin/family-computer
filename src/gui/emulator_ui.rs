@@ -1,65 +1,36 @@
-use std::{
-  convert::Infallible,
-  sync::{Arc, Mutex},
-  thread,
-  time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use iced::{
   executor,
-  futures::channel::mpsc::Sender,
-  keyboard::{self, KeyCode},
   theme::Palette,
   widget::{column, image, row, text, vertical_space},
   Application, Color, Command, Font, Length, Subscription, Theme,
 };
+use smol::channel::{Receiver, Sender};
 
 use crate::{
   controller::ControllerButton,
   emulator::{
-    EmulationInboundMessage, EmulationOutboundMessage, Emulator, EmulatorState, MachineState,
+    EmulationInboundMessage, EmulationOutboundMessage, EmulatorBuilder, EmulatorState, MachineState,
   },
-  machine::Machine,
 };
 
-use super::CRTScreen;
+use super::{keys::handle_key_event, run_emulator, CRTScreen};
 
 const PIXEL_NES_FONT: Font = Font::with_name("Pixel NES");
 
 pub struct EmulatorUIFlags {
-  machine: Machine,
+  emulator_builder: Box<dyn EmulatorBuilder>,
 }
 
 impl EmulatorUIFlags {
-  pub fn new(machine: Machine) -> Self {
-    Self { machine }
+  pub fn new(emulator_builder: Box<dyn EmulatorBuilder>) -> Self {
+    Self { emulator_builder }
   }
-}
-
-fn key_code_to_controller_button(key_code: KeyCode) -> Option<ControllerButton> {
-  match key_code {
-    KeyCode::S => Some(ControllerButton::A),
-    KeyCode::A => Some(ControllerButton::B),
-    KeyCode::Space => Some(ControllerButton::Select),
-    KeyCode::Enter => Some(ControllerButton::Start),
-    KeyCode::Up => Some(ControllerButton::Up),
-    KeyCode::Down => Some(ControllerButton::Down),
-    KeyCode::Left => Some(ControllerButton::Left),
-    KeyCode::Right => Some(ControllerButton::Right),
-    _ => None,
-  }
-}
-
-pub struct EmulatorUI {
-  emulator: Arc<Mutex<Emulator>>,
-  emulator_sender: crossbeam_channel::Sender<EmulationInboundMessage>,
-  crt_screen: CRTScreen,
-  last_tick_duration: Duration,
-  last_machine_state: MachineState,
 }
 
 #[derive(Debug, Clone)]
-pub enum Message {
+pub enum EmulatorUIMessage {
   ControllerButtonChanged(ControllerButton, bool),
   EmulatorStateChangeRequested(EmulatorState),
   FontLoaded(Result<(), iced::font::Error>),
@@ -67,25 +38,47 @@ pub enum Message {
   MachineStateChanged(MachineState),
 }
 
+pub struct EmulatorUI {
+  crt_screen: CRTScreen,
+  last_tick_duration: Duration,
+  last_machine_state: MachineState,
+  inbound_sender: Sender<EmulationInboundMessage>,
+  outbound_receiver: Arc<Receiver<EmulationOutboundMessage>>,
+}
+
 impl Application for EmulatorUI {
   type Executor = executor::Default;
-  type Message = Message;
+  type Message = EmulatorUIMessage;
   type Flags = EmulatorUIFlags;
   type Theme = Theme;
 
   fn new(flags: EmulatorUIFlags) -> (EmulatorUI, Command<Self::Message>) {
     let crt_screen = CRTScreen::new();
-    let (emulator, emulator_sender) = Emulator::new(flags.machine, crt_screen.pixbuf.clone());
+    let pixbuf = crt_screen.pixbuf.clone();
+    let (inbound_sender, inbound_receiver) = smol::channel::unbounded();
+    let (outbound_sender, outbound_receiver) = smol::channel::unbounded();
 
     (
       EmulatorUI {
-        emulator: Arc::new(Mutex::new(emulator)),
-        emulator_sender,
         crt_screen,
         last_tick_duration: Duration::from_millis(1000),
         last_machine_state: MachineState::default(),
+        inbound_sender,
+        outbound_receiver: Arc::new(outbound_receiver),
       },
-      iced::font::load(include_bytes!("./Pixel_NES.otf").as_slice()).map(Message::FontLoaded),
+      Command::batch([
+        Command::perform(
+          run_emulator::run_emulator(
+            flags.emulator_builder,
+            pixbuf,
+            inbound_receiver,
+            outbound_sender,
+          ),
+          |_| EmulatorUIMessage::FrameReady,
+        ),
+        iced::font::load(include_bytes!("./Pixel_NES.otf").as_slice())
+          .map(EmulatorUIMessage::FontLoaded),
+      ]),
     )
   }
 
@@ -105,95 +98,61 @@ impl Application for EmulatorUI {
 
   fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
     match message {
-      Message::FontLoaded(_) => Command::none(),
-      Message::ControllerButtonChanged(button, pressed) => {
-        self
-          .emulator_sender
-          .send(EmulationInboundMessage::ControllerButtonChanged(
-            button, pressed,
-          ))
-          .unwrap();
+      EmulatorUIMessage::FontLoaded(_) => Command::none(),
+      EmulatorUIMessage::ControllerButtonChanged(button, pressed) => {
+        smol::block_on(async {
+          self
+            .inbound_sender
+            .send(EmulationInboundMessage::ControllerButtonChanged(
+              button, pressed,
+            ))
+            .await
+        })
+        .unwrap();
         Command::none()
       }
-      Message::EmulatorStateChangeRequested(new_state) => {
-        self
-          .emulator_sender
-          .send(EmulationInboundMessage::EmulatorStateChangeRequested(
-            new_state,
-          ))
-          .unwrap();
+      EmulatorUIMessage::EmulatorStateChangeRequested(new_state) => {
+        smol::block_on(async {
+          self
+            .inbound_sender
+            .send(EmulationInboundMessage::EmulatorStateChangeRequested(
+              new_state,
+            ))
+            .await
+        })
+        .unwrap();
         Command::none()
       }
-      Message::FrameReady => {
+      EmulatorUIMessage::FrameReady => {
         // TODO do we need to actually do anything here?
         Command::none()
       }
-      Message::MachineStateChanged(machine_state) => {
+      EmulatorUIMessage::MachineStateChanged(machine_state) => {
         self.last_machine_state = machine_state;
         Command::none()
       }
     }
   }
 
-  fn subscription(&self) -> Subscription<Message> {
-    fn handle_key_event(event: iced::keyboard::Event) -> Option<Message> {
-      match event {
-        keyboard::Event::KeyPressed {
-          key_code,
-          modifiers: _,
-        } => {
-          if let Some(button) = key_code_to_controller_button(key_code) {
-            Some(Message::ControllerButtonChanged(button, true))
-          } else {
-            match key_code {
-              KeyCode::R => Some(Message::EmulatorStateChangeRequested(EmulatorState::Run)),
-              KeyCode::P => Some(Message::EmulatorStateChangeRequested(EmulatorState::Pause)),
-              KeyCode::F => Some(Message::EmulatorStateChangeRequested(
-                EmulatorState::RunUntilNextFrame,
-              )),
-              KeyCode::I => Some(Message::EmulatorStateChangeRequested(
-                EmulatorState::RunUntilNextInstruction,
-              )),
-              _ => None,
-            }
-          }
-        }
-        keyboard::Event::KeyReleased {
-          key_code,
-          modifiers: _,
-        } => key_code_to_controller_button(key_code)
-          .map(|button| Message::ControllerButtonChanged(button, false)),
-        _ => None,
-      }
-    }
-
-    async fn run_emulator_async(
-      emulator: Arc<Mutex<Emulator>>,
-      sender: Sender<EmulationOutboundMessage>,
-    ) -> Infallible {
-      thread::spawn(move || emulator.lock().unwrap().run(sender))
-        .join()
-        .unwrap()
-    }
-
-    let emulator = self.emulator.clone();
-
+  fn subscription(&self) -> Subscription<EmulatorUIMessage> {
+    let outbound_receiver = self.outbound_receiver.clone();
     iced::Subscription::batch([
       iced::subscription::events_with(|event, _status| match event {
         iced::Event::Keyboard(event) => handle_key_event(event),
         _ => None,
       }),
-      iced::subscription::channel("emulator-outbound", 64, |sender| {
-        run_emulator_async(emulator, sender)
-      })
-      .map(|emulation_message| {
-        println!("{:?}", emulation_message);
+      iced::subscription::unfold("emulator-outbound", (), move |()| {
+        let outbound_receiver = outbound_receiver.clone();
+        async move {
+          let outbound_message = outbound_receiver.recv().await.unwrap();
+          let ui_message = match outbound_message {
+            EmulationOutboundMessage::FrameReady => EmulatorUIMessage::FrameReady,
+            EmulationOutboundMessage::MachineStateChanged(state) => {
+              EmulatorUIMessage::MachineStateChanged(state)
+            }
+          };
 
-        match emulation_message {
-          EmulationOutboundMessage::FrameReady => Message::FrameReady,
-          EmulationOutboundMessage::MachineStateChanged(machine_state) => {
-            Message::MachineStateChanged(machine_state)
-          }
+          (ui_message, ())
         }
       }),
     ])

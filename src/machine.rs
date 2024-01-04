@@ -85,7 +85,6 @@ impl Machine {
   }
 
   pub fn execute_frame(&mut self, pixbuf: &mut Pixbuf) {
-    println!("Executing frame");
     loop {
       self.tick(pixbuf);
 

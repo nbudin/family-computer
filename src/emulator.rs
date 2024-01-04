@@ -1,17 +1,19 @@
 use std::{
-  convert::Infallible,
+  env,
+  io::BufWriter,
   sync::{Arc, RwLock},
-  thread,
   time::{Duration, Instant},
 };
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use smol::channel::{Receiver, Sender};
+use smol::stream::StreamExt;
 use strum::IntoStaticStr;
 
 use crate::{
   bus::Bus,
   controller::ControllerButton,
   cpu::CPU,
+  ines_rom::INESRom,
   machine::Machine,
   ppu::{PPULoopyRegister, Pixbuf},
 };
@@ -40,6 +42,7 @@ pub struct MachineState {
   pub mem2007: u8,
 }
 
+#[derive(Debug)]
 pub enum EmulationInboundMessage {
   ControllerButtonChanged(ControllerButton, bool),
   EmulatorStateChangeRequested(EmulatorState),
@@ -56,23 +59,17 @@ pub struct Emulator {
   state: EmulatorState,
   last_tick: Instant,
   pixbuf: Arc<RwLock<Pixbuf>>,
-  inbound_receiver: Receiver<EmulationInboundMessage>,
 }
 
 impl Emulator {
-  pub fn new(
-    machine: Machine,
-    pixbuf: Arc<RwLock<Pixbuf>>,
-  ) -> (Self, Sender<EmulationInboundMessage>) {
-    let (inbound_sender, inbound_receiver) = unbounded();
+  pub fn new(machine: Machine, pixbuf: Arc<RwLock<Pixbuf>>) -> Self {
     let emulator = Self {
       machine,
       state: EmulatorState::Pause,
       last_tick: Instant::now(),
       pixbuf,
-      inbound_receiver,
     };
-    (emulator, inbound_sender)
+    emulator
   }
 
   fn get_machine_state(&self) -> MachineState {
@@ -91,78 +88,116 @@ impl Emulator {
     }
   }
 
-  pub fn run(
+  pub async fn run(
     &mut self,
-    mut sender: iced::futures::channel::mpsc::Sender<EmulationOutboundMessage>,
-  ) -> Infallible {
+    inbound_receiver: Receiver<EmulationInboundMessage>,
+    outbound_sender: Sender<EmulationOutboundMessage>,
+  ) {
+    let mut timer = smol::Timer::interval(Duration::from_secs_f64(TARGET_FRAME_DURATION));
+
     loop {
-      while let Ok(message) = self.inbound_receiver.try_recv() {
-        match message {
-          EmulationInboundMessage::ControllerButtonChanged(button, pressed) => {
-            self.machine.controllers[0].set_button_state(button, pressed)
-          }
-          EmulationInboundMessage::EmulatorStateChangeRequested(new_state) => {
-            self.state = new_state
-          }
-        }
-      }
+      timer.next().await;
+      self.run_once(&inbound_receiver, &outbound_sender).await;
+    }
+  }
 
-      let now = Instant::now();
-      let wait_duration =
-        Duration::from_secs_f64(TARGET_FRAME_DURATION).saturating_sub(now - self.last_tick);
-      thread::sleep(wait_duration);
-      self.last_tick = Instant::now();
-
-      match self.state {
-        EmulatorState::Pause => {}
-        EmulatorState::Run => {
-          self
-            .machine
-            .execute_frame(&mut self.pixbuf.write().unwrap());
-          sender
-            .try_send(EmulationOutboundMessage::MachineStateChanged(
-              self.get_machine_state(),
-            ))
-            .unwrap();
-          sender
-            .try_send(EmulationOutboundMessage::FrameReady)
-            .unwrap();
+  pub async fn run_once(
+    &mut self,
+    receiver: &Receiver<EmulationInboundMessage>,
+    sender: &Sender<EmulationOutboundMessage>,
+  ) {
+    while let Ok(message) = receiver.try_recv() {
+      match message {
+        EmulationInboundMessage::ControllerButtonChanged(button, pressed) => {
+          self.machine.controllers[0].set_button_state(button, pressed)
         }
-        EmulatorState::RunUntilNextFrame => {
-          self
-            .machine
-            .execute_frame(&mut self.pixbuf.write().unwrap());
-          sender
-            .try_send(EmulationOutboundMessage::MachineStateChanged(
-              self.get_machine_state(),
-            ))
-            .unwrap();
-          sender
-            .try_send(EmulationOutboundMessage::FrameReady)
-            .unwrap();
-          self.state = EmulatorState::Pause;
-        }
-        EmulatorState::RunUntilNextInstruction => {
-          let start_cycles = self.machine.cpu_cycle_count;
-          loop {
-            self.machine.tick(&mut self.pixbuf.write().unwrap());
-
-            if self.machine.cpu_cycle_count > start_cycles {
-              break;
-            }
-          }
-          sender
-            .try_send(EmulationOutboundMessage::MachineStateChanged(
-              self.get_machine_state(),
-            ))
-            .unwrap();
-          sender
-            .try_send(EmulationOutboundMessage::FrameReady)
-            .unwrap();
-
-          self.state = EmulatorState::Pause;
-        }
+        EmulationInboundMessage::EmulatorStateChangeRequested(new_state) => self.state = new_state,
       }
     }
+
+    match self.state {
+      EmulatorState::Pause => {}
+      EmulatorState::Run => {
+        self
+          .machine
+          .execute_frame(&mut self.pixbuf.write().unwrap());
+        sender
+          .send(EmulationOutboundMessage::MachineStateChanged(
+            self.get_machine_state(),
+          ))
+          .await
+          .unwrap();
+        sender
+          .send(EmulationOutboundMessage::FrameReady)
+          .await
+          .unwrap();
+      }
+      EmulatorState::RunUntilNextFrame => {
+        self
+          .machine
+          .execute_frame(&mut self.pixbuf.write().unwrap());
+        sender
+          .send(EmulationOutboundMessage::MachineStateChanged(
+            self.get_machine_state(),
+          ))
+          .await
+          .unwrap();
+        sender
+          .send(EmulationOutboundMessage::FrameReady)
+          .await
+          .unwrap();
+        self.state = EmulatorState::Pause;
+      }
+      EmulatorState::RunUntilNextInstruction => {
+        let start_cycles = self.machine.cpu_cycle_count;
+        loop {
+          self.machine.tick(&mut self.pixbuf.write().unwrap());
+
+          if self.machine.cpu_cycle_count > start_cycles {
+            break;
+          }
+        }
+        sender
+          .send(EmulationOutboundMessage::MachineStateChanged(
+            self.get_machine_state(),
+          ))
+          .await
+          .unwrap();
+        sender
+          .send(EmulationOutboundMessage::FrameReady)
+          .await
+          .unwrap();
+
+        self.state = EmulatorState::Pause;
+      }
+    }
+  }
+}
+
+pub trait EmulatorBuilder: Send + Sync {
+  fn build(&self, pixbuf: Arc<RwLock<Pixbuf>>) -> Emulator;
+}
+
+pub struct NESEmulatorBuilder {
+  rom: INESRom,
+}
+
+impl NESEmulatorBuilder {
+  pub fn new(rom: INESRom) -> Self {
+    Self { rom }
+  }
+}
+
+impl EmulatorBuilder for NESEmulatorBuilder {
+  fn build(&self, pixbuf: Arc<RwLock<Pixbuf>>) -> Emulator {
+    let mut machine = Machine::from_rom(self.rom.clone());
+    let stdout = std::io::stdout();
+
+    if !env::var("DISASSEMBLE").unwrap_or_default().is_empty() {
+      let disassembly_writer = BufWriter::new(stdout);
+      machine.disassembly_writer = Some(Arc::new(RwLock::new(disassembly_writer)));
+    }
+
+    Emulator::new(machine, pixbuf)
   }
 }
