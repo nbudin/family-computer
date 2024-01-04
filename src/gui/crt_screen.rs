@@ -1,13 +1,15 @@
+use std::sync::{Arc, RwLock};
+
 use crate::ppu::{Pixbuf, PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_WIDTH};
 
 pub struct CRTScreen {
-  pub pixbuf: Pixbuf,
+  pub pixbuf: Arc<RwLock<Pixbuf>>,
 }
 
 impl CRTScreen {
   pub fn new() -> Self {
     Self {
-      pixbuf: Pixbuf::new(),
+      pixbuf: Arc::new(RwLock::new(Pixbuf::new())),
     }
   }
 
@@ -15,7 +17,7 @@ impl CRTScreen {
     iced::advanced::image::Handle::from_pixels(
       PIXEL_BUFFER_WIDTH,
       PIXEL_BUFFER_HEIGHT,
-      self.pixbuf.data,
+      self.pixbuf.read().unwrap().data,
     )
   }
 }

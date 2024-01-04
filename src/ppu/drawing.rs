@@ -1,6 +1,8 @@
-use crate::{bus::Bus, machine::Machine, palette::PALETTE};
+use crate::{bus::Bus, machine::Machine};
 
-use super::{Pixbuf, SpritePriority, PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_WIDTH, PPU};
+use super::{
+  palette::PALETTE, Pixbuf, SpritePriority, PIXEL_BUFFER_HEIGHT, PIXEL_BUFFER_WIDTH, PPU,
+};
 
 impl PPU {
   pub fn get_palette_color(machine: &Machine, palette_index: u16, color_index: u16) -> u8 {

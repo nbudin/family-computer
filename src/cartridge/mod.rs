@@ -36,7 +36,7 @@ pub trait Cartridge: Debug + DynClone {
   fn get_mirroring(&self) -> CartridgeMirroring;
 }
 
-pub type BoxCartridge = Box<dyn Cartridge>;
+pub type BoxCartridge = Box<dyn Cartridge + Send + Sync>;
 
 pub fn load_cartridge(rom: INESRom) -> BoxCartridge {
   match rom.mapper_id {

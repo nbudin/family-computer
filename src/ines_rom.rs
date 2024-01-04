@@ -4,7 +4,7 @@ use std::{
   path::Path,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct INESRom {
   pub prg_data: Vec<u8>,
   pub chr_data: Vec<u8>,

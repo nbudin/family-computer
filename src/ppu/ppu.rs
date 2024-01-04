@@ -45,6 +45,12 @@ pub struct PPU {
   pub oam_addr: u8,
 }
 
+impl Default for PPU {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl PPU {
   pub fn new() -> Self {
     Self {
