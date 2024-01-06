@@ -1,3 +1,4 @@
+mod apu;
 mod audio;
 mod bus;
 mod bus_interceptor;
@@ -18,7 +19,6 @@ use iced::{Application, Settings};
 use ines_rom::INESRom;
 
 use crate::{
-  audio::audio_test,
   emulator::NESEmulatorBuilder,
   gui::{EmulatorUI, EmulatorUIFlags},
 };
@@ -29,8 +29,6 @@ pub fn main() -> Result<(), iced::Error> {
     println!("Please specify a ROM path");
     return Ok(());
   };
-
-  audio_test().unwrap();
 
   println!("Loading {}", rom_path.display());
 

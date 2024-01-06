@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(dead_code)]
 pub enum Waveform {
@@ -13,6 +15,7 @@ pub enum OscillatorCommand {
   SetWaveform(Waveform),
   SetFrequency(f32),
   SetAmplitude(f32),
+  SetDutyCycle(f32),
 }
 
 #[derive(Clone)]
@@ -21,6 +24,7 @@ pub struct Oscillator {
   pub current_sample_index: f32,
   pub frequency_hz: f32,
   pub amplitude: f32,
+  pub duty_cycle: f32,
 }
 
 impl Oscillator {
@@ -33,6 +37,7 @@ impl Oscillator {
       OscillatorCommand::SetWaveform(waveform) => self.set_waveform(waveform),
       OscillatorCommand::SetFrequency(frequency) => self.set_frequency(frequency),
       OscillatorCommand::SetAmplitude(amplitude) => self.set_amplitude(amplitude),
+      OscillatorCommand::SetDutyCycle(duty_cycle) => self.set_duty_cycle(duty_cycle),
     }
   }
 
@@ -46,6 +51,10 @@ impl Oscillator {
 
   pub fn set_amplitude(&mut self, amplitude: f32) {
     self.amplitude = amplitude;
+  }
+
+  pub fn set_duty_cycle(&mut self, duty_cycle: f32) {
+    self.duty_cycle = duty_cycle;
   }
 
   fn calculate_sine_output_from_freq(&self, freq: f32, sample_rate: f32) -> f32 {
@@ -69,15 +78,22 @@ impl Oscillator {
     sample_rate: f32,
   ) -> f32 {
     self.advance_sample(sample_rate);
-    let mut output = 0.0;
     let mut i = 1;
+    let mut a = 0.0;
+    let mut b = 0.0;
+    let p = self.duty_cycle * 2.0 * PI;
+
     while !self.is_multiple_of_freq_above_nyquist(i as f32, sample_rate) {
       let gain = 1.0 / (i as f32).powf(gain_exponent);
-      output +=
-        gain * self.calculate_sine_output_from_freq(self.frequency_hz * i as f32, sample_rate);
+      a += gain * self.calculate_sine_output_from_freq(self.frequency_hz * i as f32, sample_rate);
+      b += gain
+        * self.calculate_sine_output_from_freq(
+          self.frequency_hz * i as f32 - (p * i as f32),
+          sample_rate,
+        );
       i += harmonic_index_increment;
     }
-    output * self.amplitude
+    (a - b) * self.amplitude
   }
 
   fn square_wave(&mut self, sample_rate: f32) -> f32 {

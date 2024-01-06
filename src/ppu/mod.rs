@@ -19,13 +19,14 @@ pub use sprites::*;
 mod tests {
   use std::io::BufReader;
 
-  use crate::{bus::Bus, ines_rom::INESRom, machine::Machine};
+  use crate::{audio::synth::SynthCommand, bus::Bus, ines_rom::INESRom, machine::Machine};
 
   use super::Pixbuf;
 
   fn run_blargg_ppu_test(rom_data: &[u8]) -> u8 {
     let rom = INESRom::from_reader(&mut BufReader::new(&rom_data[..])).unwrap();
-    let mut machine = Machine::from_rom(rom);
+    let (sender, _receiver) = smol::channel::unbounded::<SynthCommand>();
+    let mut machine = Machine::from_rom(rom, sender);
     let mut fake_pixbuf = Pixbuf::new();
     let mut result: u8;
 

@@ -31,7 +31,7 @@ mod tests {
     }
 
     pub fn into_string(self) -> String {
-      String::from_utf8(Arc::try_unwrap(self.bytes).unwrap().into_inner().unwrap()).unwrap()
+      String::from_utf8(self.bytes.read().unwrap().clone()).unwrap()
     }
   }
 
@@ -45,15 +45,16 @@ mod tests {
     }
   }
 
-  use crate::{ines_rom::INESRom, machine::Machine, ppu::Pixbuf};
+  use crate::{audio::synth::SynthCommand, ines_rom::INESRom, machine::Machine, ppu::Pixbuf};
 
   #[test]
   fn nestest_smoke_test() {
     let nestest_data = include_bytes!("../../smoketest/nestest.nes");
     let expected_log = include_str!("../../smoketest/nestest-good.log");
     let rom = INESRom::from_reader(&mut BufReader::new(&nestest_data[..])).unwrap();
+    let (sender, _receiver) = smol::channel::unbounded::<SynthCommand>();
 
-    let mut machine = Machine::from_rom(rom);
+    let mut machine = Machine::from_rom(rom, sender);
     machine.cpu.pc = 0xc000;
     machine.cpu.p = 0x24.into();
 

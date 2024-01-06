@@ -6,6 +6,8 @@ use std::{
 };
 
 use crate::{
+  apu::APUSynth,
+  audio::stream_setup::StreamSpawner,
   bus::Bus,
   bus_interceptor::BusInterceptor,
   cartridge::{load_cartridge, BoxCartridge},
@@ -42,6 +44,7 @@ pub struct Machine {
   pub cartridge: BoxCartridge,
   pub cpu: CPU,
   pub ppu: PPU,
+  pub apu_sender: <APUSynth as StreamSpawner>::OutputType,
   pub controllers: [Controller; 2],
   pub dma: DMA,
   pub cpu_cycle_count: u64,
@@ -65,12 +68,13 @@ impl Debug for Machine {
 }
 
 impl Machine {
-  pub fn from_rom(rom: INESRom) -> Self {
+  pub fn from_rom(rom: INESRom, apu_sender: <APUSynth as StreamSpawner>::OutputType) -> Self {
     let mut machine = Self {
       work_ram: [0; 2048],
       cartridge: load_cartridge(rom),
       cpu: CPU::new(),
       ppu: PPU::new(),
+      apu_sender,
       controllers: [Controller::new(), Controller::new()],
       cpu_cycle_count: 0,
       ppu_cycle_count: 0,

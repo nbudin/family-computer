@@ -10,6 +10,7 @@ use smol::stream::StreamExt;
 use strum::IntoStaticStr;
 
 use crate::{
+  audio::synth::SynthCommand,
   bus::Bus,
   controller::ControllerButton,
   cpu::CPU,
@@ -65,7 +66,7 @@ impl Emulator {
   pub fn new(machine: Machine, pixbuf: Arc<RwLock<Pixbuf>>) -> Self {
     let emulator = Self {
       machine,
-      state: EmulatorState::Pause,
+      state: EmulatorState::Run,
       last_tick: Instant::now(),
       pixbuf,
     };
@@ -175,7 +176,7 @@ impl Emulator {
 }
 
 pub trait EmulatorBuilder: Send + Sync {
-  fn build(&self, pixbuf: Arc<RwLock<Pixbuf>>) -> Emulator;
+  fn build(&self, pixbuf: Arc<RwLock<Pixbuf>>, apu_sender: Sender<SynthCommand>) -> Emulator;
 }
 
 pub struct NESEmulatorBuilder {
@@ -189,8 +190,8 @@ impl NESEmulatorBuilder {
 }
 
 impl EmulatorBuilder for NESEmulatorBuilder {
-  fn build(&self, pixbuf: Arc<RwLock<Pixbuf>>) -> Emulator {
-    let mut machine = Machine::from_rom(self.rom.clone());
+  fn build(&self, pixbuf: Arc<RwLock<Pixbuf>>, apu_sender: Sender<SynthCommand>) -> Emulator {
+    let mut machine = Machine::from_rom(self.rom.clone(), apu_sender);
     let stdout = std::io::stdout();
 
     if !env::var("DISASSEMBLE").unwrap_or_default().is_empty() {

@@ -1,8 +1,6 @@
 pub mod oscillator;
-mod stream_setup;
-mod synth;
-
-use cpal::traits::StreamTrait;
+pub mod stream_setup;
+pub mod synth;
 
 use crate::audio::{
   oscillator::{Oscillator, Waveform},
@@ -16,28 +14,30 @@ pub fn audio_test() -> Result<(), anyhow::Error> {
   let synth = Synth {
     oscillators: vec![
       Oscillator {
-        waveform: Waveform::Sine,
+        waveform: Waveform::Square,
         current_sample_index: 0.0,
         frequency_hz: 261.63,
         amplitude: 0.1,
+        duty_cycle: 0.5,
       },
       Oscillator {
-        waveform: Waveform::Sine,
+        waveform: Waveform::Square,
         current_sample_index: 0.0,
         frequency_hz: 329.63,
         amplitude: 0.0,
+        duty_cycle: 0.5,
       },
       Oscillator {
-        waveform: Waveform::Sine,
+        waveform: Waveform::Square,
         current_sample_index: 0.0,
         frequency_hz: 392.0,
         amplitude: 0.0,
+        duty_cycle: 0.5,
       },
     ],
   };
 
-  let (stream, sender) = stream_setup_for(synth)?;
-  stream.play()?;
+  let sender = stream_setup_for(synth)?;
 
   let time_at_start = std::time::Instant::now();
   println!("Time at start: {:?}", time_at_start);
