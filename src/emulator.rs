@@ -10,6 +10,7 @@ use smol::stream::StreamExt;
 use strum::IntoStaticStr;
 
 use crate::{
+  apu::APUSynthChannel,
   audio::synth::SynthCommand,
   bus::Bus,
   controller::ControllerButton,
@@ -176,7 +177,11 @@ impl Emulator {
 }
 
 pub trait EmulatorBuilder: Send + Sync {
-  fn build(&self, pixbuf: Arc<RwLock<Pixbuf>>, apu_sender: Sender<SynthCommand>) -> Emulator;
+  fn build(
+    &self,
+    pixbuf: Arc<RwLock<Pixbuf>>,
+    apu_sender: Sender<SynthCommand<APUSynthChannel>>,
+  ) -> Emulator;
 }
 
 pub struct NESEmulatorBuilder {
@@ -190,7 +195,11 @@ impl NESEmulatorBuilder {
 }
 
 impl EmulatorBuilder for NESEmulatorBuilder {
-  fn build(&self, pixbuf: Arc<RwLock<Pixbuf>>, apu_sender: Sender<SynthCommand>) -> Emulator {
+  fn build(
+    &self,
+    pixbuf: Arc<RwLock<Pixbuf>>,
+    apu_sender: Sender<SynthCommand<APUSynthChannel>>,
+  ) -> Emulator {
     let mut machine = Machine::from_rom(self.rom.clone(), apu_sender);
     let stdout = std::io::stdout();
 

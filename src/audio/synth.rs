@@ -1,4 +1,4 @@
-use std::ops::AddAssign;
+use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
 use cpal::{
   traits::{DeviceTrait, StreamTrait},
@@ -12,18 +12,25 @@ use super::{
 };
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum SynthCommand {
-  OscillatorCommand(usize, OscillatorCommand),
+pub enum SynthCommand<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
+  OscillatorCommand(ChannelIdentifier, OscillatorCommand),
 }
 
-pub struct Synth {
-  pub oscillators: Vec<Oscillator>,
+pub struct Synth<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
+  pub oscillators: HashMap<ChannelIdentifier, Oscillator>,
 }
 
-impl StreamSpawner for Synth {
-  type OutputType = Sender<SynthCommand>;
+impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> StreamSpawner
+  for Synth<ChannelIdentifier>
+{
+  type OutputType = Sender<SynthCommand<ChannelIdentifier>>;
 
-  fn spawn_stream<SampleType: cpal::SizedSample + cpal::FromSample<f32> + AddAssign>(
+  fn spawn_stream<
+    SampleType: cpal::SizedSample
+      + cpal::FromSample<f32>
+      + core::iter::Sum<SampleType>
+      + core::ops::Add<SampleType, Output = SampleType>,
+  >(
     &self,
     device: cpal::Device,
     config: &cpal::StreamConfig,
@@ -34,7 +41,7 @@ impl StreamSpawner for Synth {
     let mut oscillators = self.oscillators.clone();
     let config = config.clone();
 
-    let (sender, receiver) = smol::channel::unbounded::<SynthCommand>();
+    let (sender, receiver) = smol::channel::unbounded::<SynthCommand<ChannelIdentifier>>();
 
     std::thread::spawn(move || {
       let stream = device
@@ -55,7 +62,7 @@ impl StreamSpawner for Synth {
 
                 match command {
                   SynthCommand::OscillatorCommand(index, command) => {
-                    oscillators[index].handle_command(command)
+                    oscillators.get_mut(&index).unwrap().handle_command(command)
                   }
                 }
               }
@@ -64,7 +71,10 @@ impl StreamSpawner for Synth {
 
             process_frame(
               output,
-              oscillators.as_mut_slice(),
+              oscillators
+                .iter_mut()
+                .map(|(_identifier, oscillator)| oscillator)
+                .collect(),
               num_channels,
               sample_rate,
             )
@@ -83,19 +93,23 @@ impl StreamSpawner for Synth {
   }
 }
 
-fn process_frame<SampleType>(
+fn process_frame<'a, SampleType>(
   output: &mut [SampleType],
-  oscillators: &mut [Oscillator],
+  mut oscillators: Vec<&mut Oscillator>,
   num_channels: usize,
   sample_rate: f32,
 ) where
-  SampleType: Sample + FromSample<f32> + AddAssign,
+  SampleType: Sample
+    + FromSample<f32>
+    + core::iter::Sum<SampleType>
+    + core::ops::Add<SampleType, Output = SampleType>,
 {
   for frame in output.chunks_mut(num_channels) {
-    let mut value: SampleType = SampleType::EQUILIBRIUM;
-    for oscillator in &mut *oscillators {
-      value += SampleType::from_sample(oscillator.tick(sample_rate));
-    }
+    let value: SampleType = SampleType::EQUILIBRIUM
+      + oscillators
+        .iter_mut()
+        .map(|oscillator| SampleType::from_sample(oscillator.tick(sample_rate)))
+        .sum::<SampleType>();
 
     // copy the same value to all channels
     for sample in frame.iter_mut() {

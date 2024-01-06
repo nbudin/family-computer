@@ -45,14 +45,14 @@ mod tests {
     }
   }
 
-  use crate::{audio::synth::SynthCommand, ines_rom::INESRom, machine::Machine, ppu::Pixbuf};
+  use crate::{ines_rom::INESRom, machine::Machine, ppu::Pixbuf};
 
   #[test]
   fn nestest_smoke_test() {
     let nestest_data = include_bytes!("../../smoketest/nestest.nes");
     let expected_log = include_str!("../../smoketest/nestest-good.log");
     let rom = INESRom::from_reader(&mut BufReader::new(&nestest_data[..])).unwrap();
-    let (sender, _receiver) = smol::channel::unbounded::<SynthCommand>();
+    let (sender, _receiver) = smol::channel::unbounded();
 
     let mut machine = Machine::from_rom(rom, sender);
     machine.cpu.pc = 0xc000;

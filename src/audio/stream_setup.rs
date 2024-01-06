@@ -1,11 +1,14 @@
-use std::ops::AddAssign;
-
 use cpal::traits::{DeviceTrait, HostTrait};
 
 pub trait StreamSpawner {
   type OutputType;
 
-  fn spawn_stream<SampleType: cpal::SizedSample + cpal::FromSample<f32> + AddAssign>(
+  fn spawn_stream<
+    SampleType: cpal::SizedSample
+      + cpal::FromSample<f32>
+      + core::iter::Sum<SampleType>
+      + core::ops::Add<SampleType, Output = SampleType>,
+  >(
     &self,
     device: cpal::Device,
     config: &cpal::StreamConfig,

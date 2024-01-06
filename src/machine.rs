@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-  apu::APUSynth,
+  apu::{APUSynth, APU},
   audio::stream_setup::StreamSpawner,
   bus::Bus,
   bus_interceptor::BusInterceptor,
@@ -44,6 +44,7 @@ pub struct Machine {
   pub cartridge: BoxCartridge,
   pub cpu: CPU,
   pub ppu: PPU,
+  pub apu: APU,
   pub apu_sender: <APUSynth as StreamSpawner>::OutputType,
   pub controllers: [Controller; 2],
   pub dma: DMA,
@@ -57,8 +58,9 @@ impl Debug for Machine {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("Machine")
       .field("cartridge", &self.cartridge)
-      .field("cpu_state", &self.cpu)
-      .field("ppu_state", &self.ppu)
+      .field("cpu", &self.cpu)
+      .field("ppu", &self.ppu)
+      .field("apu", &self.apu)
       .field("controllers", &self.controllers)
       .field("cpu_cycle_count", &self.cpu_cycle_count)
       .field("ppu_cycle_count", &self.ppu_cycle_count)
@@ -74,6 +76,7 @@ impl Machine {
       cartridge: load_cartridge(rom),
       cpu: CPU::new(),
       ppu: PPU::new(),
+      apu: APU::new(),
       apu_sender,
       controllers: [Controller::new(), Controller::new()],
       cpu_cycle_count: 0,
@@ -116,6 +119,10 @@ impl Machine {
     }
   }
 
+  pub fn tick_apu(&mut self) {
+    self.apu.tick(&self.apu_sender);
+  }
+
   pub fn tick(&mut self, pixbuf: &mut Pixbuf) {
     if self.ppu_cycle_count % 3 == 0 {
       if self.dma.transfer {
@@ -139,6 +146,7 @@ impl Machine {
     }
 
     self.tick_ppu(pixbuf);
+    self.tick_apu();
   }
 
   fn log_last_executed_instruction(&mut self) {
@@ -172,6 +180,7 @@ impl Machine {
       mirroring: self.cartridge.get_mirroring(),
       ppu: RwHandle::ReadOnly(&self.ppu),
       dma: RwHandle::ReadOnly(&self.dma),
+      apu: RwHandle::ReadOnly(&self.apu),
     };
     self.cartridge.cpu_bus_interceptor(bus)
   }
@@ -184,6 +193,7 @@ impl Machine {
       mirroring: cartridge.get_mirroring(),
       ppu: RwHandle::ReadWrite(&mut self.ppu),
       dma: RwHandle::ReadWrite(&mut self.dma),
+      apu: RwHandle::ReadWrite(&mut self.apu),
     };
     cartridge.cpu_bus_interceptor_mut(bus)
   }

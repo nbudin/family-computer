@@ -1,4 +1,5 @@
 use crate::{
+  apu::APU,
   bus::Bus,
   cartridge::CartridgeMirroring,
   controller::Controller,
@@ -12,6 +13,7 @@ pub struct CPUBus<'a> {
   pub controllers: RwHandle<'a, [Controller; 2]>,
   pub ppu: RwHandle<'a, PPU>,
   pub dma: RwHandle<'a, DMA>,
+  pub apu: RwHandle<'a, APU>,
   pub mirroring: CartridgeMirroring,
 }
 
@@ -29,8 +31,7 @@ impl Bus<u16> for CPUBus<'_> {
     } else if addr == 0x4014 {
       None
     } else if addr < 0x4016 {
-      // TODO APU registers
-      None
+      self.apu.try_read_readonly(addr)
     } else if addr < 0x4018 {
       let controller = &self.controllers[addr as usize - 0x4016];
       Some(controller.read_readonly(()))
@@ -52,7 +53,8 @@ impl Bus<u16> for CPUBus<'_> {
       ppu_cpu_bus.read_side_effects(PPURegister::from_address(addr))
     } else if addr == 0x4014 {
     } else if addr < 0x4016 {
-      // TODO APU registers
+      let apu = self.apu.get_mut();
+      apu.read_side_effects(addr)
     } else if addr < 0x4018 {
       let controller = &mut self.controllers.get_mut()[addr as usize - 0x4016];
       controller.read_side_effects(())
@@ -79,8 +81,8 @@ impl Bus<u16> for CPUBus<'_> {
       dma.addr = 0;
       dma.transfer = true;
     } else if addr < 0x4016 {
-      // TODO APU registers
-      ()
+      let apu = self.apu.get_mut();
+      apu.write(addr, value)
     } else if addr < 0x4018 {
       let controller_index = addr as usize - 0x4016;
       let controller = &mut self.controllers.get_mut()[controller_index];
