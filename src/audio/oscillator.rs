@@ -1,4 +1,6 @@
-use std::f32::consts::PI;
+use std::{any::Any, f32::consts::PI};
+
+use super::audio_channel::AudioChannel;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(dead_code)]
@@ -27,18 +29,33 @@ pub struct Oscillator {
   pub duty_cycle: f32,
 }
 
+impl AudioChannel for Oscillator {
+  fn tick(&mut self, sample_rate: f32) -> f32 {
+    match self.waveform {
+      Waveform::Sine => self.sine_wave(sample_rate),
+      Waveform::Square => self.square_wave(sample_rate),
+      Waveform::Saw => self.saw_wave(sample_rate),
+      Waveform::Triangle => self.triangle_wave(sample_rate),
+    }
+  }
+
+  fn handle_command(&mut self, command: Box<dyn Any + Send + Sync>) {
+    let Ok(command) = command.downcast::<OscillatorCommand>() else {
+      return;
+    };
+
+    match command.as_ref() {
+      OscillatorCommand::SetWaveform(waveform) => self.set_waveform(waveform.clone()),
+      OscillatorCommand::SetFrequency(frequency) => self.set_frequency(frequency.clone()),
+      OscillatorCommand::SetAmplitude(amplitude) => self.set_amplitude(amplitude.clone()),
+      OscillatorCommand::SetDutyCycle(duty_cycle) => self.set_duty_cycle(duty_cycle.clone()),
+    }
+  }
+}
+
 impl Oscillator {
   pub fn advance_sample(&mut self, sample_rate: f32) {
     self.current_sample_index = (self.current_sample_index + 1.0) % sample_rate;
-  }
-
-  pub fn handle_command(&mut self, command: OscillatorCommand) {
-    match command {
-      OscillatorCommand::SetWaveform(waveform) => self.set_waveform(waveform),
-      OscillatorCommand::SetFrequency(frequency) => self.set_frequency(frequency),
-      OscillatorCommand::SetAmplitude(amplitude) => self.set_amplitude(amplitude),
-      OscillatorCommand::SetDutyCycle(duty_cycle) => self.set_duty_cycle(duty_cycle),
-    }
   }
 
   pub fn set_waveform(&mut self, waveform: Waveform) {
@@ -106,14 +123,5 @@ impl Oscillator {
 
   fn triangle_wave(&mut self, sample_rate: f32) -> f32 {
     self.generative_waveform(2, 2.0, sample_rate)
-  }
-
-  pub fn tick(&mut self, sample_rate: f32) -> f32 {
-    match self.waveform {
-      Waveform::Sine => self.sine_wave(sample_rate),
-      Waveform::Square => self.square_wave(sample_rate),
-      Waveform::Saw => self.saw_wave(sample_rate),
-      Waveform::Triangle => self.triangle_wave(sample_rate),
-    }
   }
 }

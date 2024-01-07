@@ -4,7 +4,7 @@ use super::{
   registers::{
     APUPulseControlRegister, APUPulseSweepRegister, APUTimerRegister, APUTriangleControlRegister,
   },
-  APUSynthChannel,
+  APUSequencer, APUSynthChannel,
 };
 
 #[derive(Debug, Clone)]
@@ -12,16 +12,23 @@ pub struct APUPulseChannel {
   pub control: APUPulseControlRegister,
   pub sweep: APUPulseSweepRegister,
   pub timer: APUTimerRegister,
-  oscillator_index: APUSynthChannel,
+  pub sequencer: APUSequencer,
+  synth_channel: APUSynthChannel,
 }
 
 impl APUPulseChannel {
-  pub fn new(oscillator_index: APUSynthChannel) -> Self {
+  pub fn new(synth_channel: APUSynthChannel) -> Self {
     Self {
       control: 0.into(),
       sweep: 0.into(),
       timer: 0.into(),
-      oscillator_index,
+      sequencer: APUSequencer {
+        output: 0,
+        reload: 0,
+        sequence: 0,
+        timer: 0,
+      },
+      synth_channel,
     }
   }
 
@@ -32,16 +39,16 @@ impl APUPulseChannel {
     let mut commands: Vec<SynthCommand<APUSynthChannel>> = vec![];
 
     if self.control.duty_cycle() != value.duty_cycle() {
-      commands.push(SynthCommand::OscillatorCommand(
-        self.oscillator_index,
-        OscillatorCommand::SetDutyCycle(value.duty_cycle_float()),
+      commands.push(SynthCommand::ChannelCommand(
+        self.synth_channel,
+        Box::new(OscillatorCommand::SetDutyCycle(value.duty_cycle_float())),
       ))
     }
 
     if self.control.volume_envelope_divider_period() != value.volume_envelope_divider_period() {
-      commands.push(SynthCommand::OscillatorCommand(
-        self.oscillator_index,
-        OscillatorCommand::SetAmplitude(value.amplitude()),
+      commands.push(SynthCommand::ChannelCommand(
+        self.synth_channel,
+        Box::new(OscillatorCommand::SetAmplitude(value.amplitude())),
       ))
     }
 
@@ -63,9 +70,9 @@ impl APUPulseChannel {
     };
 
     if self.timer.timer() != new_value.timer() {
-      commands.push(SynthCommand::OscillatorCommand(
-        self.oscillator_index,
-        OscillatorCommand::SetFrequency(new_value.pulse_frequency()),
+      commands.push(SynthCommand::ChannelCommand(
+        self.synth_channel,
+        Box::new(OscillatorCommand::SetFrequency(new_value.pulse_frequency())),
       ))
     }
 
@@ -112,9 +119,9 @@ impl APUTriangleChannel {
     };
 
     if self.timer.timer() != new_value.timer() {
-      commands.push(SynthCommand::OscillatorCommand(
+      commands.push(SynthCommand::ChannelCommand(
         APUSynthChannel::Triangle,
-        OscillatorCommand::SetFrequency(new_value.pulse_frequency()),
+        Box::new(OscillatorCommand::SetFrequency(new_value.pulse_frequency())),
       ))
     }
 

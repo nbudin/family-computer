@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, hash::Hash};
+use std::{any::Any, collections::HashMap, fmt::Debug, hash::Hash};
 
 use cpal::{
   traits::{DeviceTrait, StreamTrait},
@@ -6,18 +6,15 @@ use cpal::{
 };
 use smol::channel::{Sender, TryRecvError};
 
-use super::{
-  oscillator::{Oscillator, OscillatorCommand},
-  stream_setup::StreamSpawner,
-};
+use super::{audio_channel::AudioChannel, stream_setup::StreamSpawner};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug)]
 pub enum SynthCommand<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
-  OscillatorCommand(ChannelIdentifier, OscillatorCommand),
+  ChannelCommand(ChannelIdentifier, Box<dyn Any + Send + Sync>),
 }
 
 pub struct Synth<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
-  pub oscillators: HashMap<ChannelIdentifier, Oscillator>,
+  pub channels: HashMap<ChannelIdentifier, Box<dyn AudioChannel>>,
 }
 
 impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> StreamSpawner
@@ -38,7 +35,11 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
     let num_channels = config.channels as usize;
     let sample_rate = config.sample_rate.0 as f32;
     let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
-    let mut oscillators = self.oscillators.clone();
+    let mut channels = self
+      .channels
+      .iter()
+      .map(|(id, channel)| (id.clone(), dyn_clone::clone_box(channel)))
+      .collect::<HashMap<_, _>>();
     let config = config.clone();
 
     let (sender, receiver) = smol::channel::unbounded::<SynthCommand<ChannelIdentifier>>();
@@ -58,8 +59,8 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
             match command {
               Some(command) => match command {
-                SynthCommand::OscillatorCommand(index, command) => {
-                  oscillators.get_mut(&index).unwrap().handle_command(command)
+                SynthCommand::ChannelCommand(index, command) => {
+                  channels.get_mut(&index).unwrap().handle_command(command)
                 }
               },
               None => {}
@@ -67,9 +68,9 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
             process_frame(
               output,
-              oscillators
+              channels
                 .iter_mut()
-                .map(|(_identifier, oscillator)| oscillator)
+                .map(|(_identifier, channel)| channel.as_mut())
                 .collect(),
               num_channels,
               sample_rate,
@@ -91,7 +92,7 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
 fn process_frame<'a, SampleType>(
   output: &mut [SampleType],
-  mut oscillators: Vec<&mut Oscillator>,
+  mut channels: Vec<&mut Box<dyn AudioChannel>>,
   num_channels: usize,
   sample_rate: f32,
 ) where
@@ -100,14 +101,12 @@ fn process_frame<'a, SampleType>(
     + core::iter::Sum<SampleType>
     + core::ops::Add<SampleType, Output = SampleType>,
 {
-  let oscillator_divisor = oscillators.len() as f32;
+  let amplitude_divisor = channels.len() as f32;
   for frame in output.chunks_mut(num_channels) {
     let value: SampleType = SampleType::EQUILIBRIUM
-      + oscillators
+      + channels
         .iter_mut()
-        .map(|oscillator| {
-          SampleType::from_sample(oscillator.tick(sample_rate) / oscillator_divisor)
-        })
+        .map(|channel| SampleType::from_sample(channel.tick(sample_rate) / amplitude_divisor))
         .sum::<SampleType>();
 
     // copy the same value to all channels
