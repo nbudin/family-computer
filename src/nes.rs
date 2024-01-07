@@ -8,15 +8,13 @@ use std::{
 use crate::{
   apu::{APUSynth, APU},
   audio::stream_setup::StreamSpawner,
-  bus::Bus,
-  bus_interceptor::BusInterceptor,
+  bus::{Bus, BusInterceptor, RwHandle},
   cartridge::{load_cartridge, BoxCartridge},
   controller::Controller,
   cpu::{CPUBus, ExecutedInstruction, CPU},
   dma::DMA,
   ines_rom::INESRom,
   ppu::{PPUMemory, Pixbuf, PPU},
-  rw_handle::RwHandle,
 };
 
 pub type WorkRAM = [u8; 2048];
@@ -39,7 +37,7 @@ pub trait DisassemblyWriter: Write + Debug + Any {
 
 impl<T: Write + Debug + Any> DisassemblyWriter for T {}
 
-pub struct Machine {
+pub struct NES {
   pub work_ram: WorkRAM,
   pub cartridge: BoxCartridge,
   pub cpu: CPU,
@@ -54,7 +52,7 @@ pub struct Machine {
   pub disassembly_writer: Option<Arc<RwLock<dyn DisassemblyWriter + Send + Sync>>>,
 }
 
-impl Debug for Machine {
+impl Debug for NES {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("Machine")
       .field("cartridge", &self.cartridge)
@@ -69,7 +67,7 @@ impl Debug for Machine {
   }
 }
 
-impl Machine {
+impl NES {
   pub fn from_rom(rom: INESRom, apu_sender: <APUSynth as StreamSpawner>::OutputType) -> Self {
     let mut machine = Self {
       work_ram: [0; 2048],
@@ -120,7 +118,7 @@ impl Machine {
   }
 
   pub fn tick_apu(&mut self) {
-    self.apu.tick(&self.apu_sender);
+    APU::tick(self);
   }
 
   pub fn tick(&mut self, pixbuf: &mut Pixbuf) {

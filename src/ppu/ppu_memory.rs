@@ -1,4 +1,7 @@
-use crate::{bus::Bus, cartridge::CartridgeMirroring, rw_handle::RwHandle};
+use crate::{
+  bus::{Bus, RwHandle},
+  cartridge::CartridgeMirroring,
+};
 
 use super::PPU;
 

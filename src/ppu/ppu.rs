@@ -1,4 +1,4 @@
-use crate::{bus::Bus, machine::Machine};
+use crate::{bus::Bus, nes::NES};
 
 use super::{
   registers::{PPUControlRegister, PPULoopyRegister, PPUMaskRegister, PPUStatusRegister},
@@ -86,103 +86,102 @@ impl PPU {
     }
   }
 
-  fn start_frame(state: &mut Machine) {
-    state.ppu.status.set_vertical_blank(false);
-    state.ppu.status.set_sprite_zero_hit(false);
-    state.ppu.status.set_sprite_overflow(false);
+  fn start_frame(nes: &mut NES) {
+    nes.ppu.status.set_vertical_blank(false);
+    nes.ppu.status.set_sprite_zero_hit(false);
+    nes.ppu.status.set_sprite_overflow(false);
 
-    state.ppu.sprite_shifter_pattern_low = [0; 8];
-    state.ppu.sprite_shifter_pattern_high = [0; 8];
+    nes.ppu.sprite_shifter_pattern_low = [0; 8];
+    nes.ppu.sprite_shifter_pattern_high = [0; 8];
   }
 
-  fn update_registers_on_renderable_scanline(state: &mut Machine) {
-    if (state.ppu.cycle >= 1 && state.ppu.cycle < 258)
-      || (state.ppu.cycle >= 321 && state.ppu.cycle < 338)
+  fn update_registers_on_renderable_scanline(nes: &mut NES) {
+    if (nes.ppu.cycle >= 1 && nes.ppu.cycle < 258) || (nes.ppu.cycle >= 321 && nes.ppu.cycle < 338)
     {
-      state.ppu.update_shifters();
+      nes.ppu.update_shifters();
 
-      PPU::update_bg_registers(state);
+      PPU::update_bg_registers(nes);
     }
 
-    if state.ppu.cycle == 256 {
-      state.ppu.increment_scroll_y();
+    if nes.ppu.cycle == 256 {
+      nes.ppu.increment_scroll_y();
     }
 
-    if state.ppu.cycle == 257 {
-      state.ppu.load_background_shifters();
-      state.ppu.transfer_address_x();
+    if nes.ppu.cycle == 257 {
+      nes.ppu.load_background_shifters();
+      nes.ppu.transfer_address_x();
     }
 
-    if state.ppu.cycle == 338 || state.ppu.cycle == 340 {
+    if nes.ppu.cycle == 338 || nes.ppu.cycle == 340 {
       // superfluous reads of tile id at end of scanline
-      let addr = 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff);
-      let next_tile_id = state.ppu_memory_mut().read(addr);
-      state.ppu.bg_next_tile_id = next_tile_id;
+      let addr = 0x2000 | (u16::from(nes.ppu.vram_addr) & 0x0fff);
+      let next_tile_id = nes.ppu_memory_mut().read(addr);
+      nes.ppu.bg_next_tile_id = next_tile_id;
     }
 
-    if state.ppu.scanline == -1 && state.ppu.cycle >= 280 && state.ppu.cycle < 305 {
-      state.ppu.transfer_address_y();
+    if nes.ppu.scanline == -1 && nes.ppu.cycle >= 280 && nes.ppu.cycle < 305 {
+      nes.ppu.transfer_address_y();
     }
 
     // Foreground rendering =========================================================
-    if state.ppu.cycle == 257 && state.ppu.scanline >= 0 {
-      PPU::evaluate_scanline_sprites(state);
+    if nes.ppu.cycle == 257 && nes.ppu.scanline >= 0 {
+      PPU::evaluate_scanline_sprites(nes);
     }
 
-    if state.ppu.cycle == 340 {
-      for sprite_index in 0..state.ppu.sprite_scanline.len() {
-        PPU::load_sprite_data_for_next_scanline(state, sprite_index);
+    if nes.ppu.cycle == 340 {
+      for sprite_index in 0..nes.ppu.sprite_scanline.len() {
+        PPU::load_sprite_data_for_next_scanline(nes, sprite_index);
       }
     }
   }
 
-  fn increment_cycle_and_scanline(state: &mut Machine) {
-    state.ppu.cycle += 1;
+  fn increment_cycle_and_scanline(nes: &mut NES) {
+    nes.ppu.cycle += 1;
 
-    if state.ppu.cycle >= 341 {
-      state.ppu.cycle = 0;
-      state.ppu.scanline += 1;
+    if nes.ppu.cycle >= 341 {
+      nes.ppu.cycle = 0;
+      nes.ppu.scanline += 1;
 
-      if state.ppu.scanline >= 261 {
-        state.ppu.scanline = -1;
-        state.ppu.frame_count += 1;
+      if nes.ppu.scanline >= 261 {
+        nes.ppu.scanline = -1;
+        nes.ppu.frame_count += 1;
       }
     }
   }
 
-  pub fn tick(state: &mut Machine, pixbuf: &mut Pixbuf) -> bool {
+  pub fn tick(nes: &mut NES, pixbuf: &mut Pixbuf) -> bool {
     let mut trigger_nmi = false;
-    state.ppu.status_register_read_last_tick = state.ppu.status_register_read_this_tick;
-    state.ppu.status_register_read_this_tick = false;
+    nes.ppu.status_register_read_last_tick = nes.ppu.status_register_read_this_tick;
+    nes.ppu.status_register_read_this_tick = false;
 
-    if state.ppu.scanline >= -1 && state.ppu.scanline < 240 {
-      if state.ppu.scanline == 0 && state.ppu.cycle == 0 && state.ppu.frame_count % 2 == 1 {
+    if nes.ppu.scanline >= -1 && nes.ppu.scanline < 240 {
+      if nes.ppu.scanline == 0 && nes.ppu.cycle == 0 && nes.ppu.frame_count % 2 == 1 {
         // Odd frame cycle skip
-        if state.ppu.mask.render_background() || state.ppu.mask.render_sprites() {
-          state.ppu.cycle = 1;
+        if nes.ppu.mask.render_background() || nes.ppu.mask.render_sprites() {
+          nes.ppu.cycle = 1;
         }
       }
 
-      if state.ppu.scanline == -1 && state.ppu.cycle == 1 {
-        PPU::start_frame(state);
+      if nes.ppu.scanline == -1 && nes.ppu.cycle == 1 {
+        PPU::start_frame(nes);
       }
 
-      PPU::update_registers_on_renderable_scanline(state);
+      PPU::update_registers_on_renderable_scanline(nes);
     }
 
-    if state.ppu.scanline == 241 && state.ppu.cycle == 1 {
+    if nes.ppu.scanline == 241 && nes.ppu.cycle == 1 {
       // emulate a race condition in the PPU: reading the status register suppresses vblank next tick and nmi this tick
-      if !state.ppu.status_register_read_last_tick {
-        state.ppu.status.set_vertical_blank(true);
+      if !nes.ppu.status_register_read_last_tick {
+        nes.ppu.status.set_vertical_blank(true);
       }
 
-      if state.ppu.control.enable_nmi() && !state.ppu.status_register_read_this_tick {
+      if nes.ppu.control.enable_nmi() && !nes.ppu.status_register_read_this_tick {
         trigger_nmi = true;
       }
     }
 
-    PPU::draw_current_pixel(state, pixbuf);
-    PPU::increment_cycle_and_scanline(state);
+    PPU::draw_current_pixel(nes, pixbuf);
+    PPU::increment_cycle_and_scanline(nes);
 
     trigger_nmi
   }

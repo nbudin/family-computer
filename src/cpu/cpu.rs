@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use bitfield_struct::bitfield;
 
-use crate::{bus::Bus, machine::Machine};
+use crate::{bus::Bus, nes::NES};
 
 use super::{ExecutedInstruction, Instruction, Operand};
 
@@ -55,26 +55,26 @@ impl CPU {
     }
   }
 
-  pub fn set_operand(op: &Operand, value: u8, state: &mut Machine) {
+  pub fn set_operand(op: &Operand, value: u8, nes: &mut NES) {
     match op {
-      Operand::Accumulator => state.cpu.a = value,
+      Operand::Accumulator => nes.cpu.a = value,
       _ => {
-        let addr = op.get_addr(state).0;
-        state.cpu_bus_mut().write(addr, value);
+        let addr = op.get_addr(nes).0;
+        nes.cpu_bus_mut().write(addr, value);
       }
     }
   }
 
-  pub fn set_pc(addr: &Operand, state: &mut Machine) -> bool {
+  pub fn set_pc(addr: &Operand, nes: &mut NES) -> bool {
     match addr {
       Operand::Absolute(_) | Operand::Indirect(_) => {
-        state.cpu.pc = addr.get_addr(state).0;
+        nes.cpu.pc = addr.get_addr(nes).0;
         false
       }
       Operand::Relative(offset) => {
-        let (new_pc, _) = state.cpu.pc.overflowing_add_signed(i16::from(*offset));
-        let page_boundary_crossed = (new_pc & 0xff00) != (state.cpu.pc & 0xff00);
-        state.cpu.pc = new_pc;
+        let (new_pc, _) = nes.cpu.pc.overflowing_add_signed(i16::from(*offset));
+        let page_boundary_crossed = (new_pc & 0xff00) != (nes.cpu.pc & 0xff00);
+        nes.cpu.pc = new_pc;
         page_boundary_crossed
       }
       _ => {
@@ -83,12 +83,12 @@ impl CPU {
     }
   }
 
-  pub fn get_stack_dump(&self, state: &mut Machine) -> Vec<u8> {
+  pub fn get_stack_dump(&self, nes: &mut NES) -> Vec<u8> {
     let mut values: Vec<u8> = vec![];
     let mut addr = self.s;
 
     loop {
-      values.push(state.cpu_bus_mut().read(u16::from(addr) + 0x100));
+      values.push(nes.cpu_bus_mut().read(u16::from(addr) + 0x100));
       addr += 1;
       if addr > 0xfd {
         break;
@@ -98,95 +98,95 @@ impl CPU {
     values
   }
 
-  fn push_stack(value: u8, state: &mut Machine) {
-    let addr = u16::from(state.cpu.s) + 0x100;
-    state.cpu_bus_mut().write(addr, value);
-    state.cpu.s -= 1;
+  fn push_stack(value: u8, nes: &mut NES) {
+    let addr = u16::from(nes.cpu.s) + 0x100;
+    nes.cpu_bus_mut().write(addr, value);
+    nes.cpu.s -= 1;
   }
 
-  fn pull_stack(state: &mut Machine) -> u8 {
-    state.cpu.s += 1;
-    let addr = u16::from(state.cpu.s) + 0x100;
-    state.cpu_bus_mut().read(addr)
+  fn pull_stack(nes: &mut NES) -> u8 {
+    nes.cpu.s += 1;
+    let addr = u16::from(nes.cpu.s) + 0x100;
+    nes.cpu_bus_mut().read(addr)
   }
 
-  pub fn reset(state: &mut Machine) {
-    let low = state.cpu_bus_mut().read(0xfffc);
-    let high = state.cpu_bus_mut().read(0xfffd);
+  pub fn reset(nes: &mut NES) {
+    let low = nes.cpu_bus_mut().read(0xfffc);
+    let high = nes.cpu_bus_mut().read(0xfffd);
     let reset_vector = (u16::from(high) << 8) + u16::from(low);
 
-    CPU::set_pc(&Operand::Absolute(reset_vector), state);
+    CPU::set_pc(&Operand::Absolute(reset_vector), nes);
 
-    state.cpu.a = 0;
-    state.cpu.x = 0;
-    state.cpu.y = 0;
-    state.cpu.s = 0xfd;
-    state.cpu.p = CPUStatusRegister::from(0).with_unused(true);
+    nes.cpu.a = 0;
+    nes.cpu.x = 0;
+    nes.cpu.y = 0;
+    nes.cpu.s = 0xfd;
+    nes.cpu.p = CPUStatusRegister::from(0).with_unused(true);
 
-    state.cpu.wait_cycles = 7;
+    nes.cpu.wait_cycles = 7;
   }
 
-  pub fn tick(state: &mut Machine) -> Option<ExecutedInstruction> {
-    let prev_ppu_cycle = state.ppu.cycle;
-    let prev_ppu_scanline = state.ppu.scanline;
-    let prev_vram_addr: u16 = u16::from(state.ppu.vram_addr);
-    let prev_tram_addr: u16 = u16::from(state.ppu.tram_addr);
-    let prev_fine_x = state.ppu.fine_x;
-    let prev_address_latch = state.ppu.address_latch;
-    let prev_ppu_2002 = state.cpu_bus().read_readonly(0x2002);
-    let prev_ppu_2004 = state.cpu_bus().read_readonly(0x2004);
-    let prev_ppu_2007 = state.cpu_bus().read_readonly(0x2007);
-    let prev_cycle_count = state.cpu_cycle_count;
-    let prev_cpu = state.cpu.clone();
+  pub fn tick(nes: &mut NES) -> Option<ExecutedInstruction> {
+    let prev_ppu_cycle = nes.ppu.cycle;
+    let prev_ppu_scanline = nes.ppu.scanline;
+    let prev_vram_addr: u16 = u16::from(nes.ppu.vram_addr);
+    let prev_tram_addr: u16 = u16::from(nes.ppu.tram_addr);
+    let prev_fine_x = nes.ppu.fine_x;
+    let prev_address_latch = nes.ppu.address_latch;
+    let prev_ppu_2002 = nes.cpu_bus().read_readonly(0x2002);
+    let prev_ppu_2004 = nes.cpu_bus().read_readonly(0x2004);
+    let prev_ppu_2007 = nes.cpu_bus().read_readonly(0x2007);
+    let prev_cycle_count = nes.cpu_cycle_count;
+    let prev_cpu = nes.cpu.clone();
 
-    if state.cpu.nmi_set {
-      CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
-      CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
-      state.cpu.p.set_break_flag(false);
-      state.cpu.p.set_interrupt_disable(true);
-      state.cpu.p.set_unused(true);
-      CPU::push_stack(state.cpu.p.into(), state);
+    if nes.cpu.nmi_set {
+      CPU::push_stack(u8::try_from((nes.cpu.pc & 0xff00) >> 8).unwrap(), nes);
+      CPU::push_stack(u8::try_from(nes.cpu.pc & 0xff).unwrap(), nes);
+      nes.cpu.p.set_break_flag(false);
+      nes.cpu.p.set_interrupt_disable(true);
+      nes.cpu.p.set_unused(true);
+      CPU::push_stack(nes.cpu.p.into(), nes);
 
-      let low = state.cpu_bus_mut().read(0xfffa);
-      let high = state.cpu_bus_mut().read(0xfffb);
+      let low = nes.cpu_bus_mut().read(0xfffa);
+      let high = nes.cpu_bus_mut().read(0xfffb);
       let nmi_vector = (u16::from(high) << 8) + u16::from(low);
 
-      CPU::set_pc(&Operand::Absolute(nmi_vector), state);
-      state.cpu.nmi_set = false;
+      CPU::set_pc(&Operand::Absolute(nmi_vector), nes);
+      nes.cpu.nmi_set = false;
 
-      state.cpu.wait_cycles = 6;
+      nes.cpu.wait_cycles = 6;
       return None;
     }
 
-    if state.cpu.wait_cycles > 0 {
-      state.cpu.wait_cycles -= 1;
+    if nes.cpu.wait_cycles > 0 {
+      nes.cpu.wait_cycles -= 1;
       return None;
     }
 
-    if state.cpu.irq_set && !state.cpu.p.interrupt_disable() {
-      CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
-      CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
-      CPU::push_stack(state.cpu.p.into(), state);
-      state.cpu.p.set_break_flag(false);
-      state.cpu.p.set_interrupt_disable(true);
-      state.cpu.p.set_unused(true);
+    if nes.cpu.irq_set && !nes.cpu.p.interrupt_disable() {
+      CPU::push_stack(u8::try_from((nes.cpu.pc & 0xff00) >> 8).unwrap(), nes);
+      CPU::push_stack(u8::try_from(nes.cpu.pc & 0xff).unwrap(), nes);
+      CPU::push_stack(nes.cpu.p.into(), nes);
+      nes.cpu.p.set_break_flag(false);
+      nes.cpu.p.set_interrupt_disable(true);
+      nes.cpu.p.set_unused(true);
 
-      let low = state.cpu_bus_mut().read(0xfffe);
-      let high = state.cpu_bus_mut().read(0xffff);
+      let low = nes.cpu_bus_mut().read(0xfffe);
+      let high = nes.cpu_bus_mut().read(0xffff);
       let irq_vector = (u16::from(high) << 8) + u16::from(low);
 
-      CPU::set_pc(&Operand::Absolute(irq_vector), state);
+      CPU::set_pc(&Operand::Absolute(irq_vector), nes);
 
-      state.cpu.wait_cycles = 6;
+      nes.cpu.wait_cycles = 6;
       return None;
     }
 
-    state.cpu.p.set_unused(true);
+    nes.cpu.p.set_unused(true);
 
-    let (instruction, opcode) = Instruction::load_instruction(state);
-    state.cpu.wait_cycles = instruction.base_cycles() - 1;
-    let disassembled_instruction = instruction.disassemble(&state);
-    CPU::execute_instruction(&instruction, state, true);
+    let (instruction, opcode) = Instruction::load_instruction(nes);
+    nes.cpu.wait_cycles = instruction.base_cycles() - 1;
+    let disassembled_instruction = instruction.disassemble(&nes);
+    CPU::execute_instruction(&instruction, nes, true);
 
     Some(ExecutedInstruction {
       instruction,
@@ -208,518 +208,503 @@ impl CPU {
 
   fn execute_instruction(
     instruction: &Instruction,
-    state: &mut Machine,
+    nes: &mut NES,
     add_page_boundary_cross_cycles: bool,
   ) {
     match &instruction {
       Instruction::ADC(op) => {
-        let (value, page_boundary_crossed) = op.eval(state);
+        let (value, page_boundary_crossed) = op.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
 
-        let result = state.cpu.a as u16 + value as u16 + state.cpu.p.carry_flag() as u16;
-        state.cpu.p.set_overflow_flag(
-          (!(state.cpu.a ^ value) & (state.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0,
+        let result = nes.cpu.a as u16 + value as u16 + nes.cpu.p.carry_flag() as u16;
+        nes.cpu.p.set_overflow_flag(
+          (!(nes.cpu.a ^ value) & (nes.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0,
         );
-        state.cpu.p.set_carry_flag(result > 255);
-        state.cpu.a = u8::try_from(result & 0xff).unwrap();
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state.cpu.p.set_negative_flag(state.cpu.a & 0b10000000 > 0);
+        nes.cpu.p.set_carry_flag(result > 255);
+        nes.cpu.a = u8::try_from(result & 0xff).unwrap();
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag(nes.cpu.a & 0b10000000 > 0);
       }
 
       Instruction::AND(op) => {
-        let (value, page_boundary_crossed) = op.eval(state);
+        let (value, page_boundary_crossed) = op.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
-        state.cpu.a &= value;
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state.cpu.p.set_negative_flag((state.cpu.a & (1 << 7)) > 0);
+        nes.cpu.a &= value;
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.a & (1 << 7)) > 0);
       }
 
       Instruction::ASL(op) => {
-        let (value, _) = op.eval(state);
+        let (value, _) = op.eval(nes);
         let result = value << 1;
-        CPU::set_operand(&op, result, state);
-        state.cpu.p.set_carry_flag(value & 0b10000000 > 0);
-        state.cpu.p.set_negative_flag(result & 0b10000000 > 0);
-        state.cpu.p.set_zero_flag(result == 0);
+        CPU::set_operand(&op, result, nes);
+        nes.cpu.p.set_carry_flag(value & 0b10000000 > 0);
+        nes.cpu.p.set_negative_flag(result & 0b10000000 > 0);
+        nes.cpu.p.set_zero_flag(result == 0);
       }
 
       Instruction::BCC(addr) => {
-        if !state.cpu.p.carry_flag() {
-          state.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, state) {
-            state.cpu.wait_cycles += 1;
+        if !nes.cpu.p.carry_flag() {
+          nes.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, nes) {
+            nes.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BCS(addr) => {
-        if state.cpu.p.carry_flag() {
-          state.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, state) {
-            state.cpu.wait_cycles += 1;
+        if nes.cpu.p.carry_flag() {
+          nes.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, nes) {
+            nes.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BEQ(addr) => {
-        if state.cpu.p.zero_flag() {
-          state.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, state) {
-            state.cpu.wait_cycles += 1;
+        if nes.cpu.p.zero_flag() {
+          nes.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, nes) {
+            nes.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BIT(addr) => {
-        let (value, _) = addr.eval(state);
-        state.cpu.p.set_zero_flag((value & state.cpu.a) == 0);
-        state.cpu.p.set_overflow_flag((value & (1 << 6)) > 0);
-        state.cpu.p.set_negative_flag((value & (1 << 7)) > 0);
+        let (value, _) = addr.eval(nes);
+        nes.cpu.p.set_zero_flag((value & nes.cpu.a) == 0);
+        nes.cpu.p.set_overflow_flag((value & (1 << 6)) > 0);
+        nes.cpu.p.set_negative_flag((value & (1 << 7)) > 0);
       }
 
       Instruction::BMI(addr) => {
-        if state.cpu.p.negative_flag() {
-          state.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, state) {
-            state.cpu.wait_cycles += 1;
+        if nes.cpu.p.negative_flag() {
+          nes.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, nes) {
+            nes.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BNE(addr) => {
-        if !state.cpu.p.zero_flag() {
-          state.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, state) {
-            state.cpu.wait_cycles += 1;
+        if !nes.cpu.p.zero_flag() {
+          nes.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, nes) {
+            nes.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BPL(addr) => {
-        if !state.cpu.p.negative_flag() {
-          state.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, state) {
-            state.cpu.wait_cycles += 1;
+        if !nes.cpu.p.negative_flag() {
+          nes.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, nes) {
+            nes.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BRK => {
-        CPU::push_stack(u8::try_from((state.cpu.pc & 0xff00) >> 8).unwrap(), state);
-        CPU::push_stack(u8::try_from(state.cpu.pc & 0xff).unwrap(), state);
-        state.cpu.p.set_break_flag(true);
-        CPU::push_stack(state.cpu.p.into(), state);
+        CPU::push_stack(u8::try_from((nes.cpu.pc & 0xff00) >> 8).unwrap(), nes);
+        CPU::push_stack(u8::try_from(nes.cpu.pc & 0xff).unwrap(), nes);
+        nes.cpu.p.set_break_flag(true);
+        CPU::push_stack(nes.cpu.p.into(), nes);
 
-        let low = state.cpu_bus_mut().read(0xfffe);
-        let high = state.cpu_bus_mut().read(0xffff);
+        let low = nes.cpu_bus_mut().read(0xfffe);
+        let high = nes.cpu_bus_mut().read(0xffff);
         let irq_vector = (u16::from(high) << 8) + u16::from(low);
 
-        CPU::set_pc(&Operand::Absolute(irq_vector), state);
+        CPU::set_pc(&Operand::Absolute(irq_vector), nes);
 
-        state.cpu.wait_cycles = 6;
+        nes.cpu.wait_cycles = 6;
       }
 
       Instruction::BVC(addr) => {
-        if !state.cpu.p.overflow_flag() {
-          state.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, state) {
-            state.cpu.wait_cycles += 1;
+        if !nes.cpu.p.overflow_flag() {
+          nes.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, nes) {
+            nes.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::BVS(addr) => {
-        if state.cpu.p.overflow_flag() {
-          state.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, state) {
-            state.cpu.wait_cycles += 1;
+        if nes.cpu.p.overflow_flag() {
+          nes.cpu.wait_cycles += 1;
+          if CPU::set_pc(&addr, nes) {
+            nes.cpu.wait_cycles += 1;
           }
         }
       }
 
       Instruction::CLC => {
-        state.cpu.p.set_carry_flag(false);
+        nes.cpu.p.set_carry_flag(false);
       }
 
       Instruction::CLD => {
-        state.cpu.p.set_decimal_flag(false);
+        nes.cpu.p.set_decimal_flag(false);
       }
 
       Instruction::CLI => {
-        state.cpu.p.set_interrupt_disable(false);
+        nes.cpu.p.set_interrupt_disable(false);
       }
 
       Instruction::CLV => {
-        state.cpu.p.set_overflow_flag(false);
+        nes.cpu.p.set_overflow_flag(false);
       }
 
       Instruction::CMP(ref op) => {
-        let (value, page_boundary_crossed) = op.eval(state);
+        let (value, page_boundary_crossed) = op.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
-        state.cpu.p.set_carry_flag(state.cpu.a >= value);
-        state.cpu.p.set_zero_flag(state.cpu.a == value);
-        state
+        nes.cpu.p.set_carry_flag(nes.cpu.a >= value);
+        nes.cpu.p.set_zero_flag(nes.cpu.a == value);
+        nes
           .cpu
           .p
-          .set_negative_flag((state.cpu.a.wrapping_sub(value) & 0b10000000) > 0);
+          .set_negative_flag((nes.cpu.a.wrapping_sub(value) & 0b10000000) > 0);
       }
 
       Instruction::CPX(op) => {
-        let (value, _) = op.eval(state);
-        let x = state.cpu.x;
-        state.cpu.p.set_carry_flag(x >= value);
-        state.cpu.p.set_zero_flag(x == value);
-        state
+        let (value, _) = op.eval(nes);
+        let x = nes.cpu.x;
+        nes.cpu.p.set_carry_flag(x >= value);
+        nes.cpu.p.set_zero_flag(x == value);
+        nes
           .cpu
           .p
           .set_negative_flag((x.wrapping_sub(value) & 0b10000000) > 0);
       }
 
       Instruction::CPY(op) => {
-        let (value, _) = op.eval(state);
-        let y = state.cpu.y;
-        state.cpu.p.set_carry_flag(y >= value);
-        state.cpu.p.set_zero_flag(y == value);
-        state
+        let (value, _) = op.eval(nes);
+        let y = nes.cpu.y;
+        nes.cpu.p.set_carry_flag(y >= value);
+        nes.cpu.p.set_zero_flag(y == value);
+        nes
           .cpu
           .p
           .set_negative_flag((y.wrapping_sub(value) & 0b10000000) > 0);
       }
 
       Instruction::DCP(op) => {
-        CPU::execute_instruction(&Instruction::DEC(op.clone()), state, false);
-        CPU::execute_instruction(&Instruction::CMP(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::DEC(op.clone()), nes, false);
+        CPU::execute_instruction(&Instruction::CMP(op.clone()), nes, false);
       }
 
       Instruction::DEC(op) => {
-        let value = op.eval(state).0.wrapping_sub(1);
-        CPU::set_operand(&op, value, state);
-        state.cpu.p.set_zero_flag(value == 0);
-        state.cpu.p.set_negative_flag((value & 0b10000000) > 0);
+        let value = op.eval(nes).0.wrapping_sub(1);
+        CPU::set_operand(&op, value, nes);
+        nes.cpu.p.set_zero_flag(value == 0);
+        nes.cpu.p.set_negative_flag((value & 0b10000000) > 0);
       }
 
       Instruction::DEX => {
-        state.cpu.x = state.cpu.x.wrapping_sub(1);
+        nes.cpu.x = nes.cpu.x.wrapping_sub(1);
 
-        let x = state.cpu.x;
-        state.cpu.p.set_zero_flag(x == 0);
-        state.cpu.p.set_negative_flag((x & 0b10000000) > 0);
+        let x = nes.cpu.x;
+        nes.cpu.p.set_zero_flag(x == 0);
+        nes.cpu.p.set_negative_flag((x & 0b10000000) > 0);
       }
 
       Instruction::DEY => {
-        state.cpu.y = state.cpu.y.wrapping_sub(1);
+        nes.cpu.y = nes.cpu.y.wrapping_sub(1);
 
-        let y = state.cpu.y;
-        state.cpu.p.set_zero_flag(y == 0);
-        state.cpu.p.set_negative_flag((y & 0b10000000) > 0);
+        let y = nes.cpu.y;
+        nes.cpu.p.set_zero_flag(y == 0);
+        nes.cpu.p.set_negative_flag((y & 0b10000000) > 0);
       }
 
       Instruction::EOR(op) => {
-        let (value, page_boundary_crossed) = op.eval(state);
+        let (value, page_boundary_crossed) = op.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
 
-        state.cpu.a ^= value;
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state.cpu.p.set_negative_flag(state.cpu.a & 0b10000000 > 0);
+        nes.cpu.a ^= value;
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag(nes.cpu.a & 0b10000000 > 0);
       }
 
       Instruction::INC(op) => {
-        let value = op.eval(state).0.wrapping_add(1);
-        CPU::set_operand(&op, value, state);
-        state.cpu.p.set_zero_flag(value == 0);
-        state.cpu.p.set_negative_flag((value & 0b10000000) > 0);
+        let value = op.eval(nes).0.wrapping_add(1);
+        CPU::set_operand(&op, value, nes);
+        nes.cpu.p.set_zero_flag(value == 0);
+        nes.cpu.p.set_negative_flag((value & 0b10000000) > 0);
       }
 
       Instruction::INX => {
-        state.cpu.x = state.cpu.x.wrapping_add(1);
+        nes.cpu.x = nes.cpu.x.wrapping_add(1);
 
-        let x = state.cpu.x;
-        state.cpu.p.set_zero_flag(x == 0);
-        state.cpu.p.set_negative_flag((x & 0b10000000) > 0);
+        let x = nes.cpu.x;
+        nes.cpu.p.set_zero_flag(x == 0);
+        nes.cpu.p.set_negative_flag((x & 0b10000000) > 0);
       }
 
       Instruction::INY => {
-        state.cpu.y = state.cpu.y.wrapping_add(1);
-        state.cpu.p.set_zero_flag(state.cpu.y == 0);
-        state
-          .cpu
-          .p
-          .set_negative_flag((state.cpu.y & 0b10000000) > 0);
+        nes.cpu.y = nes.cpu.y.wrapping_add(1);
+        nes.cpu.p.set_zero_flag(nes.cpu.y == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.y & 0b10000000) > 0);
       }
 
       Instruction::ISB(op) => {
-        CPU::execute_instruction(&Instruction::INC(op.clone()), state, false);
-        CPU::execute_instruction(&Instruction::SBC(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::INC(op.clone()), nes, false);
+        CPU::execute_instruction(&Instruction::SBC(op.clone()), nes, false);
       }
 
       Instruction::JMP(addr) => {
-        CPU::set_pc(&addr, state);
+        CPU::set_pc(&addr, nes);
       }
 
       Instruction::JSR(addr) => {
-        let return_point = state.cpu.pc - 1;
+        let return_point = nes.cpu.pc - 1;
         let low: u8 = (return_point & 0xff).try_into().unwrap();
         let high: u8 = (return_point >> 8).try_into().unwrap();
-        CPU::push_stack(high, state);
-        CPU::push_stack(low, state);
-        CPU::set_pc(&addr, state);
+        CPU::push_stack(high, nes);
+        CPU::push_stack(low, nes);
+        CPU::set_pc(&addr, nes);
       }
 
       Instruction::LAX(addr) => {
-        CPU::execute_instruction(&Instruction::LDA(addr.clone()), state, true);
-        CPU::execute_instruction(&Instruction::TAX, state, false);
+        CPU::execute_instruction(&Instruction::LDA(addr.clone()), nes, true);
+        CPU::execute_instruction(&Instruction::TAX, nes, false);
       }
 
       Instruction::LDA(ref addr) => {
-        let (value, page_boundary_crossed) = addr.eval(state);
+        let (value, page_boundary_crossed) = addr.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
-        state.cpu.a = value;
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state
-          .cpu
-          .p
-          .set_negative_flag((state.cpu.a & 0b10000000) > 0);
+        nes.cpu.a = value;
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.a & 0b10000000) > 0);
       }
 
       Instruction::LDX(addr) => {
-        let (value, page_boundary_crossed) = addr.eval(state);
+        let (value, page_boundary_crossed) = addr.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
-        state.cpu.x = value;
-        state.cpu.p.set_zero_flag(state.cpu.x == 0);
-        state
-          .cpu
-          .p
-          .set_negative_flag((state.cpu.x & 0b10000000) > 0);
+        nes.cpu.x = value;
+        nes.cpu.p.set_zero_flag(nes.cpu.x == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.x & 0b10000000) > 0);
       }
 
       Instruction::LDY(addr) => {
-        let (value, page_boundary_crossed) = addr.eval(state);
+        let (value, page_boundary_crossed) = addr.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
-        state.cpu.y = value;
-        state.cpu.p.set_zero_flag(state.cpu.y == 0);
-        state
-          .cpu
-          .p
-          .set_negative_flag((state.cpu.y & 0b10000000) > 0);
+        nes.cpu.y = value;
+        nes.cpu.p.set_zero_flag(nes.cpu.y == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.y & 0b10000000) > 0);
       }
 
       Instruction::LSR(op) => {
-        let (value, _) = op.eval(state);
+        let (value, _) = op.eval(nes);
         let result = value >> 1;
-        CPU::set_operand(&op, result, state);
-        state.cpu.p.set_carry_flag(value & 0b1 == 1);
-        state.cpu.p.set_zero_flag(result == 0);
-        state.cpu.p.set_negative_flag(false); // always false because we always put a 0 into bit 7
+        CPU::set_operand(&op, result, nes);
+        nes.cpu.p.set_carry_flag(value & 0b1 == 1);
+        nes.cpu.p.set_zero_flag(result == 0);
+        nes.cpu.p.set_negative_flag(false); // always false because we always put a 0 into bit 7
       }
 
       Instruction::NOP => {}
 
       Instruction::ORA(op) => {
-        let (value, page_boundary_crossed) = op.eval(state);
+        let (value, page_boundary_crossed) = op.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
-        state.cpu.a = state.cpu.a | value;
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state.cpu.p.set_negative_flag((state.cpu.a & (1 << 7)) > 0);
+        nes.cpu.a = nes.cpu.a | value;
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.a & (1 << 7)) > 0);
       }
 
       Instruction::PHA => {
-        CPU::push_stack(state.cpu.a, state);
+        CPU::push_stack(nes.cpu.a, nes);
       }
 
       Instruction::PHP => {
-        let prev_break_flag = state.cpu.p.break_flag();
-        state.cpu.p.set_break_flag(true);
-        CPU::push_stack(state.cpu.p.into(), state);
-        state.cpu.p.set_break_flag(prev_break_flag);
+        let prev_break_flag = nes.cpu.p.break_flag();
+        nes.cpu.p.set_break_flag(true);
+        CPU::push_stack(nes.cpu.p.into(), nes);
+        nes.cpu.p.set_break_flag(prev_break_flag);
       }
 
       Instruction::PLA => {
-        state.cpu.a = CPU::pull_stack(state);
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state
-          .cpu
-          .p
-          .set_negative_flag((state.cpu.a & 0b10000000) > 0);
+        nes.cpu.a = CPU::pull_stack(nes);
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.a & 0b10000000) > 0);
       }
 
       Instruction::PLP => {
-        let prev_break_flag = state.cpu.p.break_flag();
-        let value = CPU::pull_stack(state);
-        state.cpu.p = value.into();
-        state.cpu.p.set_break_flag(prev_break_flag);
-        state.cpu.p.set_unused(true);
+        let prev_break_flag = nes.cpu.p.break_flag();
+        let value = CPU::pull_stack(nes);
+        nes.cpu.p = value.into();
+        nes.cpu.p.set_break_flag(prev_break_flag);
+        nes.cpu.p.set_unused(true);
       }
 
       Instruction::RLA(op) => {
-        CPU::execute_instruction(&Instruction::ROL(op.clone()), state, false);
-        CPU::execute_instruction(&Instruction::AND(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::ROL(op.clone()), nes, false);
+        CPU::execute_instruction(&Instruction::AND(op.clone()), nes, false);
       }
 
       Instruction::RRA(op) => {
-        CPU::execute_instruction(&Instruction::ROR(op.clone()), state, false);
-        CPU::execute_instruction(&Instruction::ADC(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::ROR(op.clone()), nes, false);
+        CPU::execute_instruction(&Instruction::ADC(op.clone()), nes, false);
       }
 
       Instruction::ROL(op) => {
-        let (value, _) = op.eval(state);
-        let result = value << 1 | (state.cpu.p.carry_flag() as u8);
-        CPU::set_operand(&op, result, state);
-        state.cpu.p.set_carry_flag(value & 0b10000000 > 0);
-        state.cpu.p.set_negative_flag(result & 0b10000000 > 0);
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        let (value, _) = op.eval(nes);
+        let result = value << 1 | (nes.cpu.p.carry_flag() as u8);
+        CPU::set_operand(&op, result, nes);
+        nes.cpu.p.set_carry_flag(value & 0b10000000 > 0);
+        nes.cpu.p.set_negative_flag(result & 0b10000000 > 0);
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
       }
 
       Instruction::ROR(op) => {
-        let (value, _) = op.eval(state);
-        let result = value >> 1 | ((state.cpu.p.carry_flag() as u8) << 7);
-        CPU::set_operand(&op, result, state);
-        state.cpu.p.set_carry_flag(value & 0b1 > 0);
-        state.cpu.p.set_negative_flag(result & 0b10000000 > 0);
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
+        let (value, _) = op.eval(nes);
+        let result = value >> 1 | ((nes.cpu.p.carry_flag() as u8) << 7);
+        CPU::set_operand(&op, result, nes);
+        nes.cpu.p.set_carry_flag(value & 0b1 > 0);
+        nes.cpu.p.set_negative_flag(result & 0b10000000 > 0);
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
       }
 
       Instruction::RTI => {
-        let status = CPU::pull_stack(state);
-        state.cpu.p = status.into();
-        state.cpu.p.set_unused(true);
-        let low = CPU::pull_stack(state);
-        let high = CPU::pull_stack(state);
+        let status = CPU::pull_stack(nes);
+        nes.cpu.p = status.into();
+        nes.cpu.p.set_unused(true);
+        let low = CPU::pull_stack(nes);
+        let high = CPU::pull_stack(nes);
         CPU::set_pc(
           &Operand::Absolute((u16::from(high) << 8) + u16::from(low)),
-          state,
+          nes,
         );
       }
 
       Instruction::RTS => {
-        let low = CPU::pull_stack(state);
-        let high = CPU::pull_stack(state);
+        let low = CPU::pull_stack(nes);
+        let high = CPU::pull_stack(nes);
         CPU::set_pc(
           &Operand::Absolute((u16::from(high) << 8) + u16::from(low) + 1),
-          state,
+          nes,
         );
       }
 
       Instruction::SAX(addr) => {
-        CPU::set_operand(&addr, state.cpu.a & state.cpu.x, state);
+        CPU::set_operand(&addr, nes.cpu.a & nes.cpu.x, nes);
       }
 
       Instruction::SBC(op) => {
-        let (value, page_boundary_crossed) = op.eval(state);
+        let (value, page_boundary_crossed) = op.eval(nes);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
-          state.cpu.wait_cycles += 1;
+          nes.cpu.wait_cycles += 1;
         }
 
         // invert the bottom 8 bits and then do addition as in ADC
         let value = value ^ 0xff;
 
-        let result = state.cpu.a as u16 + value as u16 + state.cpu.p.carry_flag() as u16;
-        state.cpu.p.set_overflow_flag(
-          (!(state.cpu.a ^ value) & (state.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0,
+        let result = nes.cpu.a as u16 + value as u16 + nes.cpu.p.carry_flag() as u16;
+        nes.cpu.p.set_overflow_flag(
+          (!(nes.cpu.a ^ value) & (nes.cpu.a ^ ((result & 0xff) as u8))) & 0x80 > 0,
         );
-        state.cpu.p.set_carry_flag(result > 255);
-        state.cpu.a = u8::try_from(result & 0xff).unwrap();
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state.cpu.p.set_negative_flag(state.cpu.a & 0b10000000 > 0);
+        nes.cpu.p.set_carry_flag(result > 255);
+        nes.cpu.a = u8::try_from(result & 0xff).unwrap();
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag(nes.cpu.a & 0b10000000 > 0);
       }
 
       Instruction::SEC => {
-        state.cpu.p.set_carry_flag(true);
+        nes.cpu.p.set_carry_flag(true);
       }
 
       Instruction::SED => {
-        state.cpu.p.set_decimal_flag(true);
+        nes.cpu.p.set_decimal_flag(true);
       }
 
       Instruction::SEI => {
-        state.cpu.p.set_interrupt_disable(true);
+        nes.cpu.p.set_interrupt_disable(true);
       }
 
       Instruction::SLO(op) => {
-        CPU::execute_instruction(&Instruction::ASL(op.clone()), state, false);
-        CPU::execute_instruction(&Instruction::ORA(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::ASL(op.clone()), nes, false);
+        CPU::execute_instruction(&Instruction::ORA(op.clone()), nes, false);
       }
 
       Instruction::SRE(op) => {
-        CPU::execute_instruction(&Instruction::LSR(op.clone()), state, false);
-        CPU::execute_instruction(&Instruction::EOR(op.clone()), state, false);
+        CPU::execute_instruction(&Instruction::LSR(op.clone()), nes, false);
+        CPU::execute_instruction(&Instruction::EOR(op.clone()), nes, false);
       }
 
       Instruction::STA(addr) => {
-        CPU::set_operand(&addr, state.cpu.a, state);
+        CPU::set_operand(&addr, nes.cpu.a, nes);
       }
 
       Instruction::STX(addr) => {
-        CPU::set_operand(&addr, state.cpu.x, state);
+        CPU::set_operand(&addr, nes.cpu.x, nes);
       }
 
       Instruction::STY(addr) => {
-        CPU::set_operand(&addr, state.cpu.y, state);
+        CPU::set_operand(&addr, nes.cpu.y, nes);
       }
 
       Instruction::TAX => {
-        state.cpu.x = state.cpu.a;
-        state.cpu.p.set_zero_flag(state.cpu.x == 0);
-        state.cpu.p.set_negative_flag((state.cpu.x & (1 << 7)) > 0);
+        nes.cpu.x = nes.cpu.a;
+        nes.cpu.p.set_zero_flag(nes.cpu.x == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.x & (1 << 7)) > 0);
       }
 
       Instruction::TAY => {
-        state.cpu.y = state.cpu.a;
-        state.cpu.p.set_zero_flag(state.cpu.y == 0);
-        state.cpu.p.set_negative_flag((state.cpu.y & (1 << 7)) > 0);
+        nes.cpu.y = nes.cpu.a;
+        nes.cpu.p.set_zero_flag(nes.cpu.y == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.y & (1 << 7)) > 0);
       }
 
       Instruction::TSX => {
-        state.cpu.x = state.cpu.s;
-        state.cpu.p.set_zero_flag(state.cpu.x == 0);
-        state.cpu.p.set_negative_flag((state.cpu.x & (1 << 7)) > 0);
+        nes.cpu.x = nes.cpu.s;
+        nes.cpu.p.set_zero_flag(nes.cpu.x == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.x & (1 << 7)) > 0);
       }
 
       Instruction::TXA => {
-        state.cpu.a = state.cpu.x;
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state.cpu.p.set_negative_flag((state.cpu.a & (1 << 7)) > 0);
+        nes.cpu.a = nes.cpu.x;
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.a & (1 << 7)) > 0);
       }
 
       Instruction::TXS => {
-        state.cpu.s = state.cpu.x;
+        nes.cpu.s = nes.cpu.x;
       }
 
       Instruction::TYA => {
-        state.cpu.a = state.cpu.y;
-        state.cpu.p.set_zero_flag(state.cpu.a == 0);
-        state.cpu.p.set_negative_flag((state.cpu.a & (1 << 7)) > 0);
+        nes.cpu.a = nes.cpu.y;
+        nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
+        nes.cpu.p.set_negative_flag((nes.cpu.a & (1 << 7)) > 0);
       }
 
       Instruction::Illegal(instruction, op) => {
         match **instruction {
           Instruction::NOP => match op {
             Some(op) => {
-              let (_addr, page_boundary_crossed) = op.eval(state);
+              let (_addr, page_boundary_crossed) = op.eval(nes);
               if page_boundary_crossed && add_page_boundary_cross_cycles {
-                state.cpu.wait_cycles += 1;
+                nes.cpu.wait_cycles += 1;
               }
             }
             _ => {}
           },
           _ => {}
         }
-        CPU::execute_instruction(instruction, state, false)
+        CPU::execute_instruction(instruction, nes, false)
       }
     }
   }

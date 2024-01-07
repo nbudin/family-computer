@@ -45,7 +45,7 @@ mod tests {
     }
   }
 
-  use crate::{ines_rom::INESRom, machine::Machine, ppu::Pixbuf};
+  use crate::{ines_rom::INESRom, nes::NES, ppu::Pixbuf};
 
   #[test]
   fn nestest_smoke_test() {
@@ -54,7 +54,7 @@ mod tests {
     let rom = INESRom::from_reader(&mut BufReader::new(&nestest_data[..])).unwrap();
     let (sender, _receiver) = smol::channel::unbounded();
 
-    let mut machine = Machine::from_rom(rom, sender);
+    let mut machine = NES::from_rom(rom, sender);
     machine.cpu.pc = 0xc000;
     machine.cpu.p = 0x24.into();
 

@@ -1,4 +1,4 @@
-use crate::{bus::Bus, machine::Machine};
+use crate::{bus::Bus, nes::NES};
 
 use super::PPU;
 
@@ -92,49 +92,49 @@ impl PPU {
     }
   }
 
-  pub fn update_bg_registers(state: &mut Machine) {
-    match (state.ppu.cycle - 1) % 8 {
+  pub fn update_bg_registers(nes: &mut NES) {
+    match (nes.ppu.cycle - 1) % 8 {
       0 => {
-        state.ppu.load_background_shifters();
+        nes.ppu.load_background_shifters();
 
-        let addr = 0x2000 | (u16::from(state.ppu.vram_addr) & 0x0fff);
-        let next_tile_id = state.ppu_memory_mut().read(addr);
-        state.ppu.bg_next_tile_id = next_tile_id;
+        let addr = 0x2000 | (u16::from(nes.ppu.vram_addr) & 0x0fff);
+        let next_tile_id = nes.ppu_memory_mut().read(addr);
+        nes.ppu.bg_next_tile_id = next_tile_id;
       }
       2 => {
         let addr = 0x23c0
-          | (u16::from(state.ppu.vram_addr.nametable_y()) << 11)
-          | (u16::from(state.ppu.vram_addr.nametable_x()) << 10)
-          | ((state.ppu.vram_addr.coarse_y() as u16 >> 2) << 3)
-          | (state.ppu.vram_addr.coarse_x() as u16 >> 2);
-        let next_tile_attrib = state.ppu_memory_mut().read(addr);
-        state.ppu.bg_next_tile_attrib = next_tile_attrib;
+          | (u16::from(nes.ppu.vram_addr.nametable_y()) << 11)
+          | (u16::from(nes.ppu.vram_addr.nametable_x()) << 10)
+          | ((nes.ppu.vram_addr.coarse_y() as u16 >> 2) << 3)
+          | (nes.ppu.vram_addr.coarse_x() as u16 >> 2);
+        let next_tile_attrib = nes.ppu_memory_mut().read(addr);
+        nes.ppu.bg_next_tile_attrib = next_tile_attrib;
 
-        if state.ppu.vram_addr.coarse_y() & 0x02 > 0 {
-          state.ppu.bg_next_tile_attrib >>= 4;
+        if nes.ppu.vram_addr.coarse_y() & 0x02 > 0 {
+          nes.ppu.bg_next_tile_attrib >>= 4;
         }
-        if state.ppu.vram_addr.coarse_x() & 0x02 > 0 {
-          state.ppu.bg_next_tile_attrib >>= 2;
+        if nes.ppu.vram_addr.coarse_x() & 0x02 > 0 {
+          nes.ppu.bg_next_tile_attrib >>= 2;
         }
-        state.ppu.bg_next_tile_attrib &= 0x03;
+        nes.ppu.bg_next_tile_attrib &= 0x03;
       }
       4 => {
-        let addr = (u16::from(state.ppu.control.pattern_background()) << 12)
-          + ((state.ppu.bg_next_tile_id as u16) << 4)
-          + (state.ppu.vram_addr.fine_y() as u16);
-        let bg_next_tile_low = state.ppu_memory_mut().read(addr);
-        state.ppu.bg_next_tile_low = bg_next_tile_low;
+        let addr = (u16::from(nes.ppu.control.pattern_background()) << 12)
+          + ((nes.ppu.bg_next_tile_id as u16) << 4)
+          + (nes.ppu.vram_addr.fine_y() as u16);
+        let bg_next_tile_low = nes.ppu_memory_mut().read(addr);
+        nes.ppu.bg_next_tile_low = bg_next_tile_low;
       }
       6 => {
-        let addr = (u16::from(state.ppu.control.pattern_background()) << 12)
-          + ((state.ppu.bg_next_tile_id as u16) << 4)
-          + (state.ppu.vram_addr.fine_y() as u16)
+        let addr = (u16::from(nes.ppu.control.pattern_background()) << 12)
+          + ((nes.ppu.bg_next_tile_id as u16) << 4)
+          + (nes.ppu.vram_addr.fine_y() as u16)
           + 8;
-        let bg_next_tile_high = state.ppu_memory_mut().read(addr);
-        state.ppu.bg_next_tile_high = bg_next_tile_high;
+        let bg_next_tile_high = nes.ppu_memory_mut().read(addr);
+        nes.ppu.bg_next_tile_high = bg_next_tile_high;
       }
       7 => {
-        state.ppu.increment_scroll_x();
+        nes.ppu.increment_scroll_x();
       }
       _ => {}
     }

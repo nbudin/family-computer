@@ -1,7 +1,6 @@
 mod apu;
 mod audio;
 mod bus;
-mod bus_interceptor;
 mod cartridge;
 pub mod controller;
 mod cpu;
@@ -9,9 +8,8 @@ mod dma;
 mod emulator;
 mod gui;
 mod ines_rom;
-mod machine;
+mod nes;
 mod ppu;
-pub mod rw_handle;
 
 use std::{env, path::Path};
 
@@ -33,6 +31,7 @@ pub fn main() -> Result<(), iced::Error> {
   println!("Loading {}", rom_path.display());
 
   let rom = INESRom::from_file(&rom_path).unwrap();
+  // let rom = INESRom::from_reader(&mut include_bytes!("../dk.nes").as_slice()).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
 
   EmulatorUI::run(Settings::with_flags(EmulatorUIFlags::new(Box::new(

@@ -1,6 +1,4 @@
-use smol::channel::Sender;
-
-use crate::{audio::synth::SynthCommand, bus::Bus};
+use crate::{audio::synth::SynthCommand, bus::Bus, nes::NES};
 
 use super::{
   channels::{APUPulseChannel, APUTriangleChannel},
@@ -30,12 +28,12 @@ impl APU {
     }
   }
 
-  pub fn tick(&mut self, sender: &Sender<SynthCommand<APUSynthChannel>>) {
-    let pending_commands = self.pending_commands.clone();
-    self.pending_commands.clear();
+  pub fn tick(nes: &mut NES) {
+    let pending_commands = nes.apu.pending_commands.clone();
+    nes.apu.pending_commands.clear();
 
     for command in pending_commands {
-      sender.send_blocking(command).unwrap();
+      nes.apu_sender.send_blocking(command).unwrap();
     }
   }
 }

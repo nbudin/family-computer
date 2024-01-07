@@ -1,11 +1,10 @@
 use crate::{
   apu::APU,
-  bus::Bus,
+  bus::{Bus, RwHandle},
   cartridge::CartridgeMirroring,
   controller::Controller,
   dma::DMA,
   ppu::{PPUCPUBus, PPURegister, PPU},
-  rw_handle::RwHandle,
 };
 
 pub struct CPUBus<'a> {

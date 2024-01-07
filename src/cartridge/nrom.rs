@@ -1,8 +1,7 @@
 use crate::{
-  bus_interceptor::{BusInterceptor, InterceptorResult},
+  bus::{BusInterceptor, InterceptorResult, RwHandle},
   cpu::CPUBus,
   ppu::PPUMemory,
-  rw_handle::RwHandle,
 };
 
 use super::{Cartridge, CartridgeMirroring, CartridgeState};

@@ -16,7 +16,7 @@ use crate::{
   controller::ControllerButton,
   cpu::CPU,
   ines_rom::INESRom,
-  machine::Machine,
+  nes::NES,
   ppu::{PPULoopyRegister, Pixbuf},
 };
 
@@ -57,16 +57,16 @@ pub enum EmulationOutboundMessage {
 }
 
 pub struct Emulator {
-  machine: Machine,
+  nes: NES,
   state: EmulatorState,
   last_tick: Instant,
   pixbuf: Arc<RwLock<Pixbuf>>,
 }
 
 impl Emulator {
-  pub fn new(machine: Machine, pixbuf: Arc<RwLock<Pixbuf>>) -> Self {
+  pub fn new(nes: NES, pixbuf: Arc<RwLock<Pixbuf>>) -> Self {
     let emulator = Self {
-      machine,
+      nes,
       state: EmulatorState::Run,
       last_tick: Instant::now(),
       pixbuf,
@@ -75,15 +75,15 @@ impl Emulator {
   }
 
   fn get_machine_state(&self) -> MachineState {
-    let cpu_bus = self.machine.cpu_bus();
+    let cpu_bus = self.nes.cpu_bus();
 
     MachineState {
       emulator_state: self.state,
-      cpu: self.machine.cpu.clone(),
-      vram_addr: self.machine.ppu.vram_addr,
-      tram_addr: self.machine.ppu.tram_addr,
-      scanline: self.machine.ppu.scanline,
-      cycle: self.machine.ppu.cycle,
+      cpu: self.nes.cpu.clone(),
+      vram_addr: self.nes.ppu.vram_addr,
+      tram_addr: self.nes.ppu.tram_addr,
+      scanline: self.nes.ppu.scanline,
+      cycle: self.nes.ppu.cycle,
       mem2002: cpu_bus.read_readonly(0x2002),
       mem2004: cpu_bus.read_readonly(0x2004),
       mem2007: cpu_bus.read_readonly(0x2007),
@@ -111,7 +111,7 @@ impl Emulator {
     while let Ok(message) = receiver.try_recv() {
       match message {
         EmulationInboundMessage::ControllerButtonChanged(button, pressed) => {
-          self.machine.controllers[0].set_button_state(button, pressed)
+          self.nes.controllers[0].set_button_state(button, pressed)
         }
         EmulationInboundMessage::EmulatorStateChangeRequested(new_state) => self.state = new_state,
       }
@@ -120,9 +120,7 @@ impl Emulator {
     match self.state {
       EmulatorState::Pause => {}
       EmulatorState::Run => {
-        self
-          .machine
-          .execute_frame(&mut self.pixbuf.write().unwrap());
+        self.nes.execute_frame(&mut self.pixbuf.write().unwrap());
         sender
           .send(EmulationOutboundMessage::MachineStateChanged(
             self.get_machine_state(),
@@ -135,9 +133,7 @@ impl Emulator {
           .unwrap();
       }
       EmulatorState::RunUntilNextFrame => {
-        self
-          .machine
-          .execute_frame(&mut self.pixbuf.write().unwrap());
+        self.nes.execute_frame(&mut self.pixbuf.write().unwrap());
         sender
           .send(EmulationOutboundMessage::MachineStateChanged(
             self.get_machine_state(),
@@ -151,11 +147,11 @@ impl Emulator {
         self.state = EmulatorState::Pause;
       }
       EmulatorState::RunUntilNextInstruction => {
-        let start_cycles = self.machine.cpu_cycle_count;
+        let start_cycles = self.nes.cpu_cycle_count;
         loop {
-          self.machine.tick(&mut self.pixbuf.write().unwrap());
+          self.nes.tick(&mut self.pixbuf.write().unwrap());
 
-          if self.machine.cpu_cycle_count > start_cycles {
+          if self.nes.cpu_cycle_count > start_cycles {
             break;
           }
         }
@@ -200,7 +196,7 @@ impl EmulatorBuilder for NESEmulatorBuilder {
     pixbuf: Arc<RwLock<Pixbuf>>,
     apu_sender: Sender<SynthCommand<APUSynthChannel>>,
   ) -> Emulator {
-    let mut machine = Machine::from_rom(self.rom.clone(), apu_sender);
+    let mut machine = NES::from_rom(self.rom.clone(), apu_sender);
     let stdout = std::io::stdout();
 
     if !env::var("DISASSEMBLE").unwrap_or_default().is_empty() {
