@@ -57,15 +57,11 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
             };
 
             match command {
-              Some(command) => {
-                println!("Received {:?}", command);
-
-                match command {
-                  SynthCommand::OscillatorCommand(index, command) => {
-                    oscillators.get_mut(&index).unwrap().handle_command(command)
-                  }
+              Some(command) => match command {
+                SynthCommand::OscillatorCommand(index, command) => {
+                  oscillators.get_mut(&index).unwrap().handle_command(command)
                 }
-              }
+              },
               None => {}
             }
 
@@ -104,11 +100,14 @@ fn process_frame<'a, SampleType>(
     + core::iter::Sum<SampleType>
     + core::ops::Add<SampleType, Output = SampleType>,
 {
+  let oscillator_divisor = oscillators.len() as f32;
   for frame in output.chunks_mut(num_channels) {
     let value: SampleType = SampleType::EQUILIBRIUM
       + oscillators
         .iter_mut()
-        .map(|oscillator| SampleType::from_sample(oscillator.tick(sample_rate)))
+        .map(|oscillator| {
+          SampleType::from_sample(oscillator.tick(sample_rate) / oscillator_divisor)
+        })
         .sum::<SampleType>();
 
     // copy the same value to all channels
