@@ -13,10 +13,8 @@ use crate::{
   apu::APUSynthChannel,
   audio::synth::SynthCommand,
   bus::Bus,
-  controller::ControllerButton,
   cpu::CPU,
-  ines_rom::INESRom,
-  nes::NES,
+  nes::{ControllerButton, INESRom, NES},
   ppu::{PPULoopyRegister, Pixbuf},
 };
 

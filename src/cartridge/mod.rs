@@ -1,7 +1,7 @@
 use dyn_clone::DynClone;
 
 use self::{cnrom::CNROM, nrom::NROM};
-use crate::{bus::BusInterceptor, cpu::CPUBus, ines_rom::INESRom, ppu::PPUMemory};
+use crate::{bus::BusInterceptor, cpu::CPUBus, nes::INESRom, ppu::PPUMemory};
 use std::fmt::Debug;
 
 mod cnrom;

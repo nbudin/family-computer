@@ -2,23 +2,20 @@ mod apu;
 mod audio;
 mod bus;
 mod cartridge;
-pub mod controller;
 mod cpu;
-mod dma;
 mod emulator;
 mod gui;
-mod ines_rom;
 mod nes;
 mod ppu;
 
 use std::{env, path::Path};
 
 use iced::{Application, Settings};
-use ines_rom::INESRom;
 
 use crate::{
   emulator::NESEmulatorBuilder,
   gui::{EmulatorUI, EmulatorUIFlags},
+  nes::INESRom,
 };
 
 pub fn main() -> Result<(), iced::Error> {

@@ -10,12 +10,11 @@ use crate::{
   audio::stream_setup::StreamSpawner,
   bus::{Bus, BusInterceptor, RwHandle},
   cartridge::{load_cartridge, BoxCartridge},
-  controller::Controller,
   cpu::{CPUBus, ExecutedInstruction, CPU},
-  dma::DMA,
-  ines_rom::INESRom,
   ppu::{PPUMemory, Pixbuf, PPU},
 };
+
+use super::{Controller, INESRom, DMA};
 
 pub type WorkRAM = [u8; 2048];
 

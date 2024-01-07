@@ -9,10 +9,10 @@ use iced::{
 use smol::channel::{Receiver, Sender};
 
 use crate::{
-  controller::ControllerButton,
   emulator::{
     EmulationInboundMessage, EmulationOutboundMessage, EmulatorBuilder, EmulatorState, MachineState,
   },
+  nes::ControllerButton,
 };
 
 use super::{keys::handle_key_event, run_emulator, CRTScreen};

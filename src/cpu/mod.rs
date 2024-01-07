@@ -45,7 +45,10 @@ mod tests {
     }
   }
 
-  use crate::{ines_rom::INESRom, nes::NES, ppu::Pixbuf};
+  use crate::{
+    nes::{INESRom, NES},
+    ppu::Pixbuf,
+  };
 
   #[test]
   fn nestest_smoke_test() {

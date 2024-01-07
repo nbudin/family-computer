@@ -1,6 +1,6 @@
 use iced::keyboard::{self, KeyCode};
 
-use crate::{controller::ControllerButton, emulator::EmulatorState};
+use crate::{emulator::EmulatorState, nes::ControllerButton};
 
 use super::EmulatorUIMessage;
 

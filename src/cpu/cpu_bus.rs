@@ -2,8 +2,7 @@ use crate::{
   apu::APU,
   bus::{Bus, RwHandle},
   cartridge::CartridgeMirroring,
-  controller::Controller,
-  dma::DMA,
+  nes::{Controller, DMA},
   ppu::{PPUCPUBus, PPURegister, PPU},
 };
 

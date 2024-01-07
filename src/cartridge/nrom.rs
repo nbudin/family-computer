@@ -1,6 +1,7 @@
 use crate::{
   bus::{BusInterceptor, InterceptorResult, RwHandle},
   cpu::CPUBus,
+  nes::INESRom,
   ppu::PPUMemory,
 };
 
@@ -101,7 +102,7 @@ pub struct NROM {
 }
 
 impl Cartridge for NROM {
-  fn from_ines_rom(rom: crate::ines_rom::INESRom) -> Self {
+  fn from_ines_rom(rom: INESRom) -> Self {
     let mut prg_rom: [u8; 32 * 1024] = [0; 32 * 1024];
     if !rom.prg_data.is_empty() {
       for chunk in prg_rom.chunks_exact_mut(rom.prg_data.len()) {
