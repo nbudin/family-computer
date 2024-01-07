@@ -87,4 +87,38 @@ impl APUTriangleChannel {
       timer: 0.into(),
     }
   }
+
+  pub fn write_control(
+    &mut self,
+    value: APUTriangleControlRegister,
+  ) -> Vec<SynthCommand<APUSynthChannel>> {
+    let commands: Vec<SynthCommand<APUSynthChannel>> = vec![];
+
+    self.control = value;
+    commands
+  }
+
+  pub fn write_timer_byte(
+    &mut self,
+    value: u8,
+    high_byte: bool,
+  ) -> Vec<SynthCommand<APUSynthChannel>> {
+    let mut commands: Vec<SynthCommand<APUSynthChannel>> = vec![];
+
+    let new_value = if high_byte {
+      APUTimerRegister::from((u16::from(self.timer) & 0x00ff) | ((value as u16) << 8))
+    } else {
+      APUTimerRegister::from((u16::from(self.timer) & 0xff00) | (value as u16))
+    };
+
+    if self.timer.timer() != new_value.timer() {
+      commands.push(SynthCommand::OscillatorCommand(
+        APUSynthChannel::Triangle,
+        OscillatorCommand::SetFrequency(new_value.pulse_frequency()),
+      ))
+    }
+
+    self.timer = new_value;
+    commands
+  }
 }

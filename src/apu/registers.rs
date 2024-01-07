@@ -49,6 +49,10 @@ impl APUTimerRegister {
   pub fn pulse_frequency(&self) -> f32 {
     NTSC_CPU_FREQUENCY / ((self.timer() as f32 + 1.0) * 16.0)
   }
+
+  pub fn triangle_frequency(&self) -> f32 {
+    self.pulse_frequency() / 2.0
+  }
 }
 
 #[bitfield(u8)]

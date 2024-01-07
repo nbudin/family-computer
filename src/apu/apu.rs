@@ -69,15 +69,16 @@ impl Bus<u16> for APU {
         .extend(self.pulse2.write_timer_byte(value, false)),
       0x4007 => self
         .pending_commands
-        .extend(self.pulse2.write_timer_byte(value, false)),
-      0x4008 => self.triangle.control = value.into(),
-      0x400a => {
-        self.triangle.timer = ((u16::from(self.triangle.timer) & 0xff00) | value as u16).into()
-      }
-      0x400b => {
-        self.triangle.timer =
-          ((u16::from(self.triangle.timer) & 0x00ff) | ((value as u16) << 8)).into()
-      }
+        .extend(self.pulse2.write_timer_byte(value, true)),
+      0x4008 => self
+        .pending_commands
+        .extend(self.triangle.write_control(value.into())),
+      0x400a => self
+        .pending_commands
+        .extend(self.triangle.write_timer_byte(value, false)),
+      0x400b => self
+        .pending_commands
+        .extend(self.triangle.write_timer_byte(value, true)),
       _ => {}
     }
   }
