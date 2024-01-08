@@ -1,8 +1,8 @@
-use crate::{audio::synth::SynthCommand, bus::Bus, nes::NES};
+use crate::{bus::Bus, nes::NES};
 
 use super::{
   APUFrameCounterRegister, APUPulseChannel, APUSequencerMode, APUState, APUStatusRegister,
-  APUSynthChannel, APUTriangleChannel,
+  APUTriangleChannel,
 };
 
 #[derive(Debug)]
@@ -14,6 +14,7 @@ pub struct APU {
   pub frame_counter: APUFrameCounterRegister,
   pub cycle_count: u64,
   pub frame_cycle_count: u64,
+  prev_state: Option<APUState>,
 }
 
 impl APU {
@@ -26,6 +27,7 @@ impl APU {
       frame_counter: 0.into(),
       cycle_count: 0,
       frame_cycle_count: 0,
+      prev_state: None,
     }
   }
 
@@ -34,9 +36,6 @@ impl APU {
     let mut half_frame = false;
 
     if nes.apu.cycle_count % 6 == 0 {
-      let mut pending_commands: Vec<SynthCommand<APUSynthChannel>> = vec![];
-      let prev_state = APUState::capture(&nes.apu);
-
       nes.apu.frame_cycle_count += 1;
 
       match nes.apu.frame_counter.sequencer_mode() {
@@ -105,17 +104,25 @@ impl APU {
         });
 
       let new_state = APUState::capture(&nes.apu);
-      pending_commands.extend(prev_state.diff_commands(&new_state));
-
-      for command in pending_commands {
+      let commands = if let Some(prev_state) = &nes.apu.prev_state {
+        prev_state.diff_commands(&new_state)
+      } else {
+        new_state.commands()
+      };
+      for command in commands {
         nes.apu_sender.send_blocking(command).unwrap();
       }
+      nes.apu.prev_state = Some(new_state);
     }
+
+    nes.apu.cycle_count += 1;
   }
 
   fn write_status_byte(&mut self, value: APUStatusRegister) {
+    self.status = value;
     self.pulse1.enabled = value.pulse1_enable();
     self.pulse2.enabled = value.pulse2_enable();
+    self.triangle.enabled = value.triangle_enable();
   }
 }
 

@@ -1,9 +1,10 @@
 use std::fmt::Debug;
 
-use crate::audio::{oscillator::OscillatorCommand, synth::SynthCommand};
+use crate::{apu::APUTriangleOscillatorCommand, audio::synth::SynthCommand};
 
 use super::{APUPulseChannel, APUPulseOscillatorCommand, APUSynthChannel, APUTriangleChannel, APU};
 
+#[derive(Debug)]
 pub struct APUState {
   pulse1: APUChannelState,
   pulse2: APUChannelState,
@@ -17,6 +18,16 @@ impl APUState {
       pulse2: APUChannelState::capture(apu, APUSynthChannel::Pulse2),
       triangle: APUChannelState::capture(apu, APUSynthChannel::Triangle),
     }
+  }
+
+  pub fn commands(&self) -> Vec<SynthCommand<APUSynthChannel>> {
+    self
+      .pulse1
+      .commands()
+      .into_iter()
+      .chain(self.pulse2.commands().into_iter())
+      .chain(self.triangle.commands().into_iter())
+      .collect()
   }
 
   pub fn diff_commands(&self, other: &APUState) -> Vec<SynthCommand<APUSynthChannel>> {
@@ -49,6 +60,26 @@ impl APUChannelState {
       APUSynthChannel::Triangle => {
         APUChannelState::Triangle(APUTriangleChannelState::capture(&apu.triangle))
       }
+    }
+  }
+
+  pub fn commands(&self) -> Vec<SynthCommand<APUSynthChannel>> {
+    match self {
+      APUChannelState::Pulse1(state) => state
+        .commands()
+        .into_iter()
+        .map(|command| SynthCommand::ChannelCommand(APUSynthChannel::Pulse1, Box::new(command)))
+        .collect(),
+      APUChannelState::Pulse2(state) => state
+        .commands()
+        .into_iter()
+        .map(|command| SynthCommand::ChannelCommand(APUSynthChannel::Pulse2, Box::new(command)))
+        .collect(),
+      APUChannelState::Triangle(state) => state
+        .commands()
+        .into_iter()
+        .map(|command| SynthCommand::ChannelCommand(APUSynthChannel::Triangle, Box::new(command)))
+        .collect(),
     }
   }
 
@@ -100,6 +131,7 @@ pub trait APUChannelStateTrait: Debug {
   fn capture(channel: &Self::Channel) -> Self
   where
     Self: Sized;
+  fn commands(&self) -> Vec<Self::Command>;
   fn diff_commands(&self, after: &Self) -> Vec<Self::Command>;
 }
 
@@ -122,6 +154,15 @@ impl APUChannelStateTrait for APUPulseChannelState {
       frequency: channel.frequency(),
       enabled: channel.enabled,
     }
+  }
+
+  fn commands(&self) -> Vec<Self::Command> {
+    vec![
+      APUPulseOscillatorCommand::SetDutyCycle(self.duty_cycle),
+      APUPulseOscillatorCommand::SetAmplitude(self.amplitude),
+      APUPulseOscillatorCommand::SetFrequency(self.frequency),
+      APUPulseOscillatorCommand::SetEnabled(self.enabled),
+    ]
   }
 
   fn diff_commands(&self, after: &APUPulseChannelState) -> Vec<APUPulseOscillatorCommand> {
@@ -149,37 +190,38 @@ impl APUChannelStateTrait for APUPulseChannelState {
 
 #[derive(Debug, Clone)]
 pub struct APUTriangleChannelState {
-  amplitude: f32,
   frequency: f32,
   enabled: bool,
 }
 
 impl APUChannelStateTrait for APUTriangleChannelState {
   type Channel = APUTriangleChannel;
-  type Command = OscillatorCommand;
+  type Command = APUTriangleOscillatorCommand;
 
   fn capture(channel: &Self::Channel) -> Self {
     APUTriangleChannelState {
-      amplitude: 1.0,
       frequency: channel.timer.triangle_frequency(),
-      enabled: true,
+      enabled: channel.enabled,
     }
   }
 
-  fn diff_commands(&self, after: &APUTriangleChannelState) -> Vec<OscillatorCommand> {
-    let mut commands: Vec<OscillatorCommand> = vec![];
+  fn commands(&self) -> Vec<Self::Command> {
+    vec![
+      APUTriangleOscillatorCommand::SetEnabled(self.enabled),
+      APUTriangleOscillatorCommand::SetFrequency(self.frequency),
+    ]
+  }
 
-    if self.amplitude != after.amplitude {
-      commands.push(OscillatorCommand::SetAmplitude(after.amplitude))
-    }
+  fn diff_commands(&self, after: &APUTriangleChannelState) -> Vec<APUTriangleOscillatorCommand> {
+    let mut commands: Vec<APUTriangleOscillatorCommand> = vec![];
 
     if self.frequency != after.frequency {
-      commands.push(OscillatorCommand::SetFrequency(after.frequency))
+      commands.push(APUTriangleOscillatorCommand::SetFrequency(after.frequency))
     }
 
-    // if self.enabled != after.enabled {
-    //   commands.push(OscillatorCommand::SetEnabled(after.enabled))
-    // }
+    if self.enabled != after.enabled {
+      commands.push(APUTriangleOscillatorCommand::SetEnabled(after.enabled))
+    }
 
     commands
   }

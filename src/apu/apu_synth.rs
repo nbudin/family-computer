@@ -1,11 +1,6 @@
-use crate::audio::{
-  audio_channel::AudioChannel,
-  oscillator::{Oscillator, Waveform},
-  stream_setup::StreamSpawner,
-  synth::Synth,
-};
+use crate::audio::{audio_channel::AudioChannel, stream_setup::StreamSpawner, synth::Synth};
 
-use super::APUPulseOscillator;
+use super::{APUPulseOscillator, APUTriangleOscillator};
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub enum APUSynthChannel {
@@ -33,13 +28,7 @@ impl APUSynth {
           ),
           (
             APUSynthChannel::Triangle,
-            Box::new(Oscillator {
-              waveform: Waveform::Triangle,
-              current_sample_index: 0.0,
-              frequency_hz: 440.0,
-              amplitude: 0.0,
-              duty_cycle: 0.5,
-            }) as Box<dyn AudioChannel>,
+            Box::new(APUTriangleOscillator::new()) as Box<dyn AudioChannel>,
           ),
         ]
         .into_iter()

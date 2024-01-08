@@ -6,7 +6,7 @@ use crate::audio::audio_channel::AudioChannel;
 
 use super::{
   envelope::APUEnvelope, APULengthCounter, APUPulseControlRegister, APUPulseSweepRegister,
-  APUSequencer, APUTimerRegister,
+  APUSequencer, APUTimerRegister, MAX_PULSE_FREQUENCY,
 };
 
 const TWO_PI: f32 = PI * 2.0;
@@ -96,7 +96,7 @@ impl APUPulseChannel {
       control: 0.into(),
       sweep: 0.into(),
       timer: 0.into(),
-      enabled: true,
+      enabled: false,
       sequencer: APUSequencer {
         output: 0,
         reload: 0,
@@ -110,9 +110,10 @@ impl APUPulseChannel {
 
   pub fn amplitude(&self) -> f32 {
     if self.length_counter.counter > 0
-      && self.sequencer.timer >= 8
+      // && self.sequencer.timer >= 8
       // && self.sweep.enabled()
       && self.envelope.output > 2
+      && self.frequency() < MAX_PULSE_FREQUENCY
     {
       f32::from(self.envelope.output - 1) / 16.0
     } else {
@@ -130,17 +131,66 @@ impl APUPulseChannel {
 
   pub fn write_control(&mut self, value: APUPulseControlRegister) {
     self.sequencer.sequence = value.duty_cycle_sequence() as u32;
+    self.length_counter.halt = value.length_counter_halt();
     self.envelope.loop_flag = value.length_counter_halt();
+    self.envelope.enabled = !value.constant_volume_envelope();
+    self.envelope.volume = value.volume_envelope_divider_period() as u16;
     self.control = value;
+
+    // println!(
+    //   "sequence: {:08b} envelope: {:?}",
+    //   value.duty_cycle_sequence(),
+    //   self.envelope
+    // )
   }
 
   pub fn write_timer_byte(&mut self, value: u8, high_byte: bool) {
     let new_value = if high_byte {
-      APUTimerRegister::from((u16::from(self.timer) & 0x00ff) | ((value as u16) << 8))
+      APUTimerRegister::from((u16::from(self.timer) & 0x00ff) | (((value & 0b111) as u16) << 8))
     } else {
       APUTimerRegister::from((u16::from(self.timer) & 0xff00) | (value as u16))
     };
 
     self.timer = new_value;
+
+    if high_byte {
+      self.envelope.start_flag = true;
+
+      let length_counter_load_index = value >> 3;
+      self.length_counter.counter = match length_counter_load_index {
+        0x00 => 10,
+        0x01 => 254,
+        0x02 => 20,
+        0x03 => 2,
+        0x04 => 40,
+        0x05 => 4,
+        0x06 => 80,
+        0x07 => 6,
+        0x08 => 160,
+        0x09 => 8,
+        0x0a => 60,
+        0x0b => 10,
+        0x0c => 14,
+        0x0d => 12,
+        0x0e => 26,
+        0x0f => 14,
+        0x10 => 12,
+        0x11 => 16,
+        0x12 => 24,
+        0x13 => 18,
+        0x14 => 48,
+        0x15 => 20,
+        0x16 => 96,
+        0x17 => 22,
+        0x18 => 192,
+        0x19 => 24,
+        0x1a => 72,
+        0x1b => 26,
+        0x1c => 16,
+        0x1d => 28,
+        0x1e => 32,
+        _ => 30,
+      };
+    }
   }
 }

@@ -1,6 +1,7 @@
 use bitfield_struct::bitfield;
 
 pub const NTSC_CPU_FREQUENCY: f32 = 1.789773 * 1_000_000.0;
+pub const MAX_PULSE_FREQUENCY: f32 = 13_000.0;
 
 #[bitfield(u8)]
 pub struct APUPulseControlRegister {
@@ -56,7 +57,7 @@ pub struct APUTimerRegister {
 
 impl APUTimerRegister {
   pub fn pulse_frequency(&self) -> f32 {
-    NTSC_CPU_FREQUENCY / ((self.timer() as f32 + 1.0) * 16.0)
+    (NTSC_CPU_FREQUENCY / ((self.timer() as f32 + 1.0) * 16.0)).clamp(0.0, MAX_PULSE_FREQUENCY)
   }
 
   pub fn triangle_frequency(&self) -> f32 {
