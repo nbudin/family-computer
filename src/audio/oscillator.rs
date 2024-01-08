@@ -30,7 +30,7 @@ pub struct Oscillator {
 }
 
 impl AudioChannel for Oscillator {
-  fn tick(&mut self, sample_rate: f32) -> f32 {
+  fn get_next_sample(&mut self, sample_rate: f32) -> f32 {
     match self.waveform {
       Waveform::Sine => self.sine_wave(sample_rate),
       Waveform::Square => self.square_wave(sample_rate),
@@ -76,7 +76,7 @@ impl Oscillator {
 
   fn calculate_sine_output_from_freq(&self, freq: f32, sample_rate: f32) -> f32 {
     let two_pi = 2.0 * std::f32::consts::PI;
-    fastapprox::fast::sinfull(self.current_sample_index * freq * two_pi / sample_rate)
+    (self.current_sample_index * freq * two_pi / sample_rate).sin()
   }
 
   fn is_multiple_of_freq_above_nyquist(&self, multiple: f32, sample_rate: f32) -> bool {

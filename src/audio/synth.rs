@@ -106,7 +106,9 @@ fn process_frame<'a, SampleType>(
     let value: SampleType = SampleType::EQUILIBRIUM
       + channels
         .iter_mut()
-        .map(|channel| SampleType::from_sample(channel.tick(sample_rate) / amplitude_divisor))
+        .map(|channel| {
+          SampleType::from_sample(channel.get_next_sample(sample_rate) / amplitude_divisor)
+        })
         .sum::<SampleType>();
 
     // copy the same value to all channels

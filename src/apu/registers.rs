@@ -22,6 +22,15 @@ impl APUPulseControlRegister {
     }
   }
 
+  pub fn duty_cycle_sequence(&self) -> u8 {
+    match self.duty_cycle() {
+      0 => 0b00000001,
+      1 => 0b00000011,
+      2 => 0b00001111,
+      _ => 0b11111100,
+    }
+  }
+
   pub fn amplitude(&self) -> f32 {
     (self.volume_envelope_divider_period() as f32) / (0b1111 as f32)
   }

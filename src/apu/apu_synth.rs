@@ -5,6 +5,8 @@ use crate::audio::{
   synth::Synth,
 };
 
+use super::APUPulseOscillator;
+
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub enum APUSynthChannel {
   Pulse1,
@@ -23,23 +25,11 @@ impl APUSynth {
         channels: [
           (
             APUSynthChannel::Pulse1,
-            Box::new(Oscillator {
-              waveform: Waveform::Square,
-              current_sample_index: 0.0,
-              frequency_hz: 440.0,
-              amplitude: 0.0,
-              duty_cycle: 0.5,
-            }) as Box<dyn AudioChannel>,
+            Box::new(APUPulseOscillator::new()) as Box<dyn AudioChannel>,
           ),
           (
             APUSynthChannel::Pulse2,
-            Box::new(Oscillator {
-              waveform: Waveform::Square,
-              current_sample_index: 0.0,
-              frequency_hz: 440.0,
-              amplitude: 0.0,
-              duty_cycle: 0.5,
-            }) as Box<dyn AudioChannel>,
+            Box::new(APUPulseOscillator::new()) as Box<dyn AudioChannel>,
           ),
           (
             APUSynthChannel::Triangle,
