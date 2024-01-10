@@ -31,9 +31,22 @@ impl APU {
     }
   }
 
-  pub fn tick(nes: &mut NES) {
+  pub fn tick(nes: &mut NES) -> bool {
     let mut quarter_frame = false;
     let mut half_frame = false;
+    let mut irq_set = false;
+
+    if nes.apu.cycle_count % 3 == 0 {
+      nes.apu.triangle.sequencer.tick(
+        nes.apu.status.triangle_enable()
+          && nes.apu.triangle.linear_counter.counter > 0
+          && nes.apu.triangle.length_counter.counter > 0,
+        |sequence| {
+          // this represents a step in the 15 -> 0, 0 -> 15 sequence
+          (sequence + 1) % 32
+        },
+      );
+    }
 
     if nes.apu.cycle_count % 6 == 0 {
       nes.apu.frame_cycle_count += 1;
@@ -50,6 +63,9 @@ impl APU {
             quarter_frame = true;
             half_frame = true;
             nes.apu.frame_cycle_count = 0;
+            if !nes.apu.frame_counter.interrupt_inhibit() {
+              irq_set = true;
+            }
           }
           _ => {}
         },
@@ -75,6 +91,7 @@ impl APU {
         for envelope in [&mut nes.apu.pulse1.envelope, &mut nes.apu.pulse2.envelope] {
           envelope.tick();
         }
+        nes.apu.triangle.linear_counter.tick();
       }
 
       if half_frame {
@@ -82,6 +99,7 @@ impl APU {
         for length_counter in [
           &mut nes.apu.pulse1.length_counter,
           &mut nes.apu.pulse2.length_counter,
+          &mut nes.apu.triangle.length_counter,
         ] {
           length_counter.tick();
         }
@@ -116,6 +134,8 @@ impl APU {
     }
 
     nes.apu.cycle_count += 1;
+
+    irq_set
   }
 
   fn write_status_byte(&mut self, value: APUStatusRegister) {

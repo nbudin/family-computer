@@ -7,6 +7,15 @@ pub struct APUSequencer {
 }
 
 impl APUSequencer {
+  pub fn new() -> Self {
+    APUSequencer {
+      output: 0,
+      reload: 0,
+      sequence: 0,
+      timer: 0,
+    }
+  }
+
   pub fn tick<F: FnOnce(u32) -> u32>(&mut self, enable: bool, f: F) -> u8 {
     if enable {
       self.timer = self.timer.wrapping_sub(1);

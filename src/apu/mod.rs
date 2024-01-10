@@ -3,6 +3,7 @@ mod apu_synth;
 mod channel_state;
 mod envelope;
 mod length_counter;
+mod linear_counter;
 mod pulse;
 mod registers;
 mod sequencer;

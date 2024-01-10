@@ -191,7 +191,7 @@ impl APUChannelStateTrait for APUPulseChannelState {
 #[derive(Debug, Clone)]
 pub struct APUTriangleChannelState {
   frequency: f32,
-  enabled: bool,
+  producing_sound: bool,
 }
 
 impl APUChannelStateTrait for APUTriangleChannelState {
@@ -201,13 +201,13 @@ impl APUChannelStateTrait for APUTriangleChannelState {
   fn capture(channel: &Self::Channel) -> Self {
     APUTriangleChannelState {
       frequency: channel.timer.triangle_frequency(),
-      enabled: channel.enabled,
+      producing_sound: channel.producing_sound(),
     }
   }
 
   fn commands(&self) -> Vec<Self::Command> {
     vec![
-      APUTriangleOscillatorCommand::SetEnabled(self.enabled),
+      APUTriangleOscillatorCommand::SetEnabled(self.producing_sound),
       APUTriangleOscillatorCommand::SetFrequency(self.frequency),
     ]
   }
@@ -219,8 +219,10 @@ impl APUChannelStateTrait for APUTriangleChannelState {
       commands.push(APUTriangleOscillatorCommand::SetFrequency(after.frequency))
     }
 
-    if self.enabled != after.enabled {
-      commands.push(APUTriangleOscillatorCommand::SetEnabled(after.enabled))
+    if self.producing_sound != after.producing_sound {
+      commands.push(APUTriangleOscillatorCommand::SetEnabled(
+        after.producing_sound,
+      ))
     }
 
     commands

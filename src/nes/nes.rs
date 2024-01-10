@@ -117,7 +117,11 @@ impl NES {
   }
 
   pub fn tick_apu(&mut self) {
-    APU::tick(self);
+    let irq_set = APU::tick(self);
+
+    if irq_set {
+      self.cpu.irq_set = true;
+    }
   }
 
   pub fn tick(&mut self, pixbuf: &mut Pixbuf) {

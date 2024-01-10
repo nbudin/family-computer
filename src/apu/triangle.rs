@@ -4,7 +4,11 @@ use fastapprox::fast::sinfull;
 
 use crate::audio::audio_channel::AudioChannel;
 
-use super::registers::{APUTimerRegister, APUTriangleControlRegister};
+use super::{
+  linear_counter::APULinearCounter,
+  registers::{APUTimerRegister, APUTriangleControlRegister},
+  APULengthCounter, APUSequencer,
+};
 
 const TWO_PI: f32 = PI * 2.0;
 
@@ -70,6 +74,9 @@ pub struct APUTriangleChannel {
   pub control: APUTriangleControlRegister,
   pub timer: APUTimerRegister,
   pub enabled: bool,
+  pub length_counter: APULengthCounter,
+  pub linear_counter: APULinearCounter,
+  pub sequencer: APUSequencer,
 }
 
 impl APUTriangleChannel {
@@ -78,20 +85,38 @@ impl APUTriangleChannel {
       control: 0.into(),
       timer: 0.into(),
       enabled: false,
+      linear_counter: APULinearCounter::new(),
+      length_counter: APULengthCounter::new(),
+      sequencer: APUSequencer::new(),
     }
   }
 
+  pub fn producing_sound(&self) -> bool {
+    self.enabled && self.length_counter.counter > 0 && self.linear_counter.counter > 0
+  }
+
   pub fn write_control(&mut self, value: APUTriangleControlRegister) {
+    self.linear_counter.counter = value.counter_reload_value();
+    self.linear_counter.control_flag = value.control_flag();
+    self.length_counter.halt = value.control_flag();
+
     self.control = value;
   }
 
   pub fn write_timer_byte(&mut self, value: u8, high_byte: bool) {
     let new_value = if high_byte {
-      APUTimerRegister::from((u16::from(self.timer) & 0x00ff) | ((value as u16) << 8))
+      APUTimerRegister::from((u16::from(self.timer) & 0x00ff) | (((value & 0b111) as u16) << 8))
     } else {
       APUTimerRegister::from((u16::from(self.timer) & 0xff00) | (value as u16))
     };
 
     self.timer = new_value;
+    self.sequencer.timer = self.timer.timer();
+
+    if high_byte {
+      let length_counter_load_index = value >> 3;
+      self.length_counter.load_length(length_counter_load_index);
+      self.linear_counter.reload_flag = true;
+    }
   }
 }
