@@ -22,8 +22,8 @@ command = "lipo"
 dependencies = ["build-x86_64", "build-aarch64", "make-universal-release-folder"]
 
 [tasks.write-info-plist.mac]
-script = "echo \"$INFO_PLIST_CONTENT\" >target/universal-apple-darwin/release/Info.plist"
 dependencies = ["make-universal-release-folder"]
+script = "echo \"$INFO_PLIST_CONTENT\" >target/universal-apple-darwin/release/Info.plist"
 
 [tasks.write-info-plist.mac.env]
 INFO_PLIST_CONTENT = '''
@@ -36,23 +36,39 @@ INFO_PLIST_CONTENT = '''
    CFBundleInfoDictionaryVersion = "6.0";
    CFBundlePackageType = APPL;
    CFBundleExecutable = family-computer;
-   CFBundleIconFile = "family-computer.icns";
+   CFBundleIconFile = "Family Computer.icns";
 }
 '''
 
-[tasks.build-package.mac]
-dependencies = ["lipo-universal", "write-info-plist"]
+[tasks.build-icon.mac]
 script = [
-  "rm -r target/universal-apple-darwin/release/Family\\ Computer.app",
+  "rm -rf target/universal-apple-darwin/release/Family\\ Computer.iconset",
+  "mkdir target/universal-apple-darwin/release/Family\\ Computer.iconset",
+  "sips -z 16 16     mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_16x16.png",
+  "sips -z 32 32     mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_16x16@2x.png",
+  "sips -z 32 32     mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_32x32.png",
+  "sips -z 64 64     mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_32x32@2x.png",
+  "sips -z 128 128   mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_128x128.png",
+  "sips -z 256 256   mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_128x128@2x.png",
+  "sips -z 256 256   mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_256x256.png",
+  "sips -z 512 512   mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_256x256@2x.png",
+  "sips -z 512 512   mos6502.png --out target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_512x512.png",
+  "cp mos6502.png target/universal-apple-darwin/release/Family\\ Computer.iconset/icon_512x512@2x.png",
+  "iconutil -c icns target/universal-apple-darwin/release/Family\\ Computer.iconset",
+  "rm -rf target/universal-apple-darwin/release/Family\\ Computer.iconset",
+]
+
+[tasks.build-package.mac]
+dependencies = ["lipo-universal", "write-info-plist", "build-icon"]
+script = [
+  "rm -rf target/universal-apple-darwin/release/Family\\ Computer.app",
   "mkdir -p target/universal-apple-darwin/release/Family\\ Computer.app/Contents/MacOS",
   "mkdir -p target/universal-apple-darwin/release/Family\\ Computer.app/Contents/Resources",
   "mv target/universal-apple-darwin/release/Info.plist target/universal-apple-darwin/release/Family\\ Computer.app/Contents/",
   "mv target/universal-apple-darwin/release/family-computer target/universal-apple-darwin/release/Family\\ Computer.app/Contents/MacOS/",
-  "codesign -s - --force target/universal-apple-darwin/release/Family\\ Computer.app/"
+  "mv target/universal-apple-darwin/release/Family\\ Computer.icns target/universal-apple-darwin/release/Family\\ Computer.app/Contents/Resources/",
+  "codesign -s 'Developer ID Application: Nathaniel Budin (V2W3RME3KS)' target/universal-apple-darwin/release/Family\\ Computer.app/",
 ]
-
-[tasks.build.mac]
-dependencies = ["build-package"]
 
 [tasks.build.linux]
 args = ["build", "--release"]
