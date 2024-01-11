@@ -70,7 +70,7 @@ script = [
   "mv ${RELEASE_DIR}/Info.plist ${RELEASE_DIR}/Family\\ Computer.app/Contents/",
   "mv ${RELEASE_DIR}/family-computer ${RELEASE_DIR}/Family\\ Computer.app/Contents/MacOS/",
   "mv ${RELEASE_DIR}/Family\\ Computer.icns ${RELEASE_DIR}/Family\\ Computer.app/Contents/Resources/",
-  "codesign -s 'Developer ID Application: Nathaniel Budin (V2W3RME3KS)' --options runtime ${RELEASE_DIR}/Family\\ Computer.app/",
+  "codesign -s 'Developer ID Application: Nathaniel Budin (V2W3RME3KS)' --keychain ${KEYCHAIN_PATH} --options runtime ${RELEASE_DIR}/Family\\ Computer.app/",
 ]
 
 [tasks.build.linux]
