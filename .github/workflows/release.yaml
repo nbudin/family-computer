@@ -41,6 +41,7 @@ jobs:
           xcrun notarytool store-credentials "notarytool-profile" --apple-id "$NOTARIZATION_APPLE_ID" --team-id "$NOTARIZATION_TEAM_ID" --password "$NOTARIZATION_PASSWORD"
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add aarch64-apple-darwin
+      - run: rustup target add x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-make
       - run: cargo make build-package
