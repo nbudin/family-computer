@@ -45,6 +45,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-make
       - run: cargo make build-package
+        env:
+          KEYCHAIN_PATH: $RUNNER_TEMP/app-signing.keychain-db
       - name: Notarize app
         run: |
           ditto -c -k --keepParent "target/universal-apple-darwin/release/Family Computer.app" "notarization.zip"
