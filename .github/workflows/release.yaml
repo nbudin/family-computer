@@ -48,7 +48,7 @@ jobs:
         run: |
           ditto -c -k --keepParent "target/universal-apple-darwin/release/Family Computer.app" "notarization.zip"
           xcrun notarytool submit "notarization.zip" --keychain-profile "notarytool-profile" --wait
-          xcrun stapler staple "target/universal-apple-darwin/release/Family\ Computer.app"
+          xcrun stapler staple "target/universal-apple-darwin/release/Family Computer.app"
       - run: mv target/universal-apple-darwin/release/Family\ Computer.app .
       - run: zip -r Family\ Computer.zip Family\ Computer.app
       - name: upload macOS release artifact
