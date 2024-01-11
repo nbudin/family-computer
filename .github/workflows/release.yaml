@@ -6,6 +6,8 @@ on:
 jobs:
   build_mac:
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -38,12 +40,7 @@ jobs:
       - run: cargo make build-package
       - run: mv target/universal-apple-darwin/release/Family\ Computer.app .
       - run: zip -r Family\ Computer.zip Family\ Computer.app
-      - name: upload darwin artifact
-        uses: actions/upload-release-asset@v1
+      - name: upload macOS release artifact
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        with:
-          upload_url: ${{ github.event.release.assets_url }}
-          asset_path: ./Family Computer.zip
-          asset_name: Family\ Computer.zip
-          asset_content_type: application/zip
+        run: gh release upload ${{ github.event.release.tag_name }} "Family Computer.zip"
