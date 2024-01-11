@@ -44,9 +44,7 @@ jobs:
       - run: rustup target add x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-make
-      - run: cargo make build-package
-        env:
-          KEYCHAIN_PATH: $RUNNER_TEMP/app-signing.keychain-db
+      - run: KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db cargo make build-package
       - name: Notarize app
         run: |
           ditto -c -k --keepParent "target/universal-apple-darwin/release/Family Computer.app" "notarization.zip"
