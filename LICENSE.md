@@ -4,6 +4,11 @@ Parts of this project are ported from olcNES, which is covered by the
 OLC-3 license, reproduced below. olcNES can be found at:
 https://github.com/OneLoneCoder/olcNES/tree/master
 
+The app icon is based on a photo by Dirk Oppelt, and is covered by the
+Creative Commons Attribution-Share Alike 3.0 Unported license. The
+original can be found at:
+https://commons.wikimedia.org/wiki/File:MOS_6502AD_4585_top.jpg
+
 The rest is covered by the MIT license, which can also be found below.
 
 ## License (MIT)
