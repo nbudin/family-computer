@@ -30,8 +30,9 @@ jobs:
           security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
       - uses: dtolnay/rust-toolchain@stable
+      - run: rustup target add aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - run: cargo install cargo-make
+      - uses: taiki-e/install-action@cargo-make
       - run: cargo make build-package
       - run: mv target/universal-apple-darwin/Family\ Computer.app .
       - run: zip -r Family\ Computer.zip Family\ Computer.app
