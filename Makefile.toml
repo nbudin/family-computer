@@ -1,0 +1,59 @@
+[tasks.build-x86_64.mac]
+args = ["build", "--release", "--target=x86_64-apple-darwin"]
+command = "cargo"
+
+[tasks.build-aarch64.mac]
+args = ["build", "--release", "--target=aarch64-apple-darwin"]
+command = "cargo"
+
+[tasks.make-universal-release-folder.mac]
+args = ["-p", "target/universal-apple/darwin/release"]
+command = "mkdir"
+
+[tasks.lipo-universal.mac]
+args = [
+  "target/x86_64-apple-darwin/release/family-computer",
+  "target/aarch64-apple-darwin/release/family-computer",
+  "-create",
+  "-output",
+  "target/universal-apple-darwin/release/family-computer",
+]
+command = "lipo"
+dependencies = ["build-x86_64", "build-aarch64", "make-universal-release-folder"]
+
+[tasks.write-info-plist.mac]
+script = "echo \"$INFO_PLIST_CONTENT\" >target/universal-apple-darwin/release/Info.plist"
+dependencies = ["make-universal-release-folder"]
+
+[tasks.write-info-plist.mac.env]
+INFO_PLIST_CONTENT = '''
+{
+   CFBundleName = family-computer;
+   CFBundleDisplayName = "Family Computer";
+   CFBundleIdentifier = "com.natbudin.family-computer";
+   CFBundleVersion = "${CARGO_MAKE_PROJECT_VERSION}";
+   CFBundleShortVersionString = "${CARGO_MAKE_PROJECT_VERSION}";
+   CFBundleInfoDictionaryVersion = "6.0";
+   CFBundlePackageType = APPL;
+   CFBundleExecutable = family-computer;
+   CFBundleIconFile = "family-computer.icns";
+}
+'''
+
+[tasks.build-package.mac]
+dependencies = ["lipo-universal", "write-info-plist"]
+script = [
+  "rm -r target/universal-apple-darwin/release/Family\\ Computer.app",
+  "mkdir -p target/universal-apple-darwin/release/Family\\ Computer.app/Contents/MacOS",
+  "mkdir -p target/universal-apple-darwin/release/Family\\ Computer.app/Contents/Resources",
+  "mv target/universal-apple-darwin/release/Info.plist target/universal-apple-darwin/release/Family\\ Computer.app/Contents/",
+  "mv target/universal-apple-darwin/release/family-computer target/universal-apple-darwin/release/Family\\ Computer.app/Contents/MacOS/",
+  "codesign -s - --force target/universal-apple-darwin/release/Family\\ Computer.app/"
+]
+
+[tasks.build.mac]
+dependencies = ["build-package"]
+
+[tasks.build.linux]
+args = ["build", "--release"]
+command = "cargo"

@@ -21,7 +21,7 @@ strum = {version = "0.25.0", features = ["derive"]}
 similar-asserts = "1.5.0"
 
 [profile.release]
-debug = true
+# lto = true
 
 [package.metadata.bundle]
 identifier = "com.natbudin.family-computer"
