@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use fruitbasket::FruitApp;
 use iced::{
   executor,
   theme::Palette,
@@ -21,11 +22,21 @@ const PIXEL_NES_FONT: Font = Font::with_name("Pixel NES");
 
 pub struct EmulatorUIFlags {
   emulator_builder: Box<dyn EmulatorBuilder>,
+  #[cfg(target_os = "macos")]
+  app: Option<FruitApp<'static>>,
 }
 
 impl EmulatorUIFlags {
   pub fn new(emulator_builder: Box<dyn EmulatorBuilder>) -> Self {
-    Self { emulator_builder }
+    Self {
+      emulator_builder,
+      #[cfg(target_os = "macos")]
+      app: None,
+    }
+  }
+
+  pub fn set_app(&mut self, app: FruitApp<'static>) {
+    self.app = Some(app)
   }
 }
 
@@ -44,6 +55,8 @@ pub struct EmulatorUI {
   last_machine_state: MachineState,
   inbound_sender: Sender<EmulationInboundMessage>,
   outbound_receiver: Arc<Receiver<EmulationOutboundMessage>>,
+  #[cfg(target_os = "macos")]
+  app: fruitbasket::FruitApp<'static>,
 }
 
 impl Application for EmulatorUI {
@@ -65,6 +78,8 @@ impl Application for EmulatorUI {
         last_machine_state: MachineState::default(),
         inbound_sender,
         outbound_receiver: Arc::new(outbound_receiver),
+        #[cfg(target_os = "macos")]
+        app: flags.app.unwrap(),
       },
       Command::batch([
         Command::perform(
@@ -124,7 +139,9 @@ impl Application for EmulatorUI {
         Command::none()
       }
       EmulatorUIMessage::FrameReady => {
-        // TODO do we need to actually do anything here?
+        #[cfg(target_os = "macos")]
+        self.app.run(fruitbasket::RunPeriod::Once).unwrap();
+
         Command::none()
       }
       EmulatorUIMessage::MachineStateChanged(machine_state) => {

@@ -10,6 +10,7 @@ mod ppu;
 
 use std::{env, path::Path};
 
+use fruitbasket::FruitApp;
 use iced::{Application, Settings};
 
 use crate::{
@@ -25,13 +26,33 @@ pub fn main() -> Result<(), iced::Error> {
     return Ok(());
   };
 
+  #[cfg(target_os = "macos")]
+  let app = {
+    let mut trampoline = fruitbasket::Trampoline::new(
+      "Family Computer",
+      "family-computer",
+      "com.natbudin.family-computer",
+    );
+
+    let app = trampoline.build(fruitbasket::InstallDir::Temp).unwrap();
+    app.set_activation_policy(fruitbasket::ActivationPolicy::Regular);
+    app
+  };
+
   println!("Loading {}", rom_path.display());
 
   let rom = INESRom::from_file(&rom_path).unwrap();
   // let rom = INESRom::from_reader(&mut include_bytes!("../dk.nes").as_slice()).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
 
-  EmulatorUI::run(Settings::with_flags(EmulatorUIFlags::new(Box::new(
-    NESEmulatorBuilder::new(rom),
-  ))))
+  let mut flags = EmulatorUIFlags::new(Box::new(NESEmulatorBuilder::new(rom)));
+  #[cfg(target_os = "macos")]
+  flags.set_app(app);
+
+  EmulatorUI::run(Settings::with_flags(flags))?;
+
+  #[cfg(target_os = "macos")]
+  FruitApp::terminate(0);
+
+  Ok(())
 }
