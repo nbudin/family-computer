@@ -1,10 +1,11 @@
 use dyn_clone::DynClone;
 
-use self::{cnrom::CNROM, nrom::NROM, uxrom::UxROM};
+use self::{cnrom::CNROM, mmc1::MMC1, nrom::NROM, uxrom::UxROM};
 use crate::{bus::BusInterceptor, cpu::CPUBus, nes::INESRom, ppu::PPUMemory};
 use std::fmt::Debug;
 
 mod cnrom;
+mod mmc1;
 mod nrom;
 mod uxrom;
 
@@ -12,8 +13,10 @@ pub trait CartridgeState {}
 
 #[derive(Debug, Clone, Copy)]
 pub enum CartridgeMirroring {
-  HORIZONTAL,
-  VERTICAL,
+  Horizontal,
+  Vertical,
+  SingleScreen,
+  FourScreen,
 }
 
 pub trait Cartridge: Debug + DynClone {
@@ -42,6 +45,7 @@ pub type BoxCartridge = Box<dyn Cartridge + Send + Sync>;
 pub fn load_cartridge(rom: INESRom) -> BoxCartridge {
   match rom.mapper_id {
     0 => Box::new(NROM::from_ines_rom(rom)),
+    1 => Box::new(MMC1::from_ines_rom(rom)),
     2 => Box::new(UxROM::from_ines_rom(rom)),
     3 => Box::new(CNROM::from_ines_rom(rom)),
     _ => {

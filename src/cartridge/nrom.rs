@@ -122,9 +122,9 @@ impl Cartridge for NROM {
       chr_rom,
       state: NROMState::new(),
       mirroring: if rom.vertical_mirroring {
-        CartridgeMirroring::VERTICAL
+        CartridgeMirroring::Vertical
       } else {
-        CartridgeMirroring::HORIZONTAL
+        CartridgeMirroring::Horizontal
       },
     }
   }

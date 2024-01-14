@@ -34,7 +34,6 @@ impl<'a> BusInterceptor<'a, u16> for UxROMCPUBusInterceptor<'a> {
   }
 
   fn intercept_read_readonly(&self, addr: u16) -> InterceptorResult<Option<u8>> {
-    // TODO bank switching
     if addr < 0x8000 {
       InterceptorResult::NotIntercepted
     } else if addr < 0xc000 {
@@ -112,9 +111,9 @@ impl Cartridge for UxROM {
       chr_rom,
       state: UxROMState::new(),
       mirroring: if rom.vertical_mirroring {
-        CartridgeMirroring::VERTICAL
+        CartridgeMirroring::Vertical
       } else {
-        CartridgeMirroring::HORIZONTAL
+        CartridgeMirroring::Horizontal
       },
     }
   }

@@ -20,7 +20,7 @@ impl Bus<u16> for PPUMemory<'_> {
       let addr = addr & 0x0fff;
 
       match self.mirroring {
-        CartridgeMirroring::HORIZONTAL => {
+        CartridgeMirroring::Horizontal => {
           if addr < 0x0400 {
             Some(self.ppu.name_tables[0][addr as usize & 0x03ff])
           } else if addr < 0x0800 {
@@ -31,7 +31,7 @@ impl Bus<u16> for PPUMemory<'_> {
             Some(self.ppu.name_tables[1][addr as usize & 0x03ff])
           }
         }
-        CartridgeMirroring::VERTICAL => {
+        CartridgeMirroring::Vertical => {
           if addr < 0x0400 {
             Some(self.ppu.name_tables[0][addr as usize & 0x03ff])
           } else if addr < 0x0800 {
@@ -42,6 +42,18 @@ impl Bus<u16> for PPUMemory<'_> {
             Some(self.ppu.name_tables[1][addr as usize & 0x03ff])
           }
         }
+        CartridgeMirroring::FourScreen => {
+          if addr < 0x400 {
+            Some(self.ppu.name_tables[0][addr as usize & 0x03ff])
+          } else if addr < 0x0800 {
+            Some(self.ppu.name_tables[1][addr as usize & 0x03ff])
+          } else if addr < 0x0c00 {
+            Some(self.ppu.name_tables[2][addr as usize & 0x03ff])
+          } else {
+            Some(self.ppu.name_tables[3][addr as usize & 0x03ff])
+          }
+        }
+        CartridgeMirroring::SingleScreen => Some(self.ppu.name_tables[0][addr as usize & 0x03ff]),
       }
     } else {
       let addr = addr & 0x001f;
@@ -76,7 +88,7 @@ impl Bus<u16> for PPUMemory<'_> {
       let addr = addr & 0x0fff;
 
       match self.mirroring {
-        CartridgeMirroring::HORIZONTAL => {
+        CartridgeMirroring::Horizontal => {
           if addr < 0x0400 {
             ppu.name_tables[0][addr as usize & 0x03ff] = value;
           } else if addr < 0x0800 {
@@ -87,7 +99,7 @@ impl Bus<u16> for PPUMemory<'_> {
             ppu.name_tables[1][addr as usize & 0x03ff] = value;
           }
         }
-        CartridgeMirroring::VERTICAL => {
+        CartridgeMirroring::Vertical => {
           if addr < 0x0400 {
             ppu.name_tables[0][addr as usize & 0x03ff] = value;
           } else if addr < 0x0800 {
@@ -97,6 +109,20 @@ impl Bus<u16> for PPUMemory<'_> {
           } else {
             ppu.name_tables[1][addr as usize & 0x03ff] = value;
           }
+        }
+        CartridgeMirroring::FourScreen => {
+          if addr < 0x400 {
+            ppu.name_tables[0][addr as usize & 0x03ff] = value;
+          } else if addr < 0x0800 {
+            ppu.name_tables[1][addr as usize & 0x03ff] = value;
+          } else if addr < 0x0c00 {
+            ppu.name_tables[2][addr as usize & 0x03ff] = value;
+          } else {
+            ppu.name_tables[3][addr as usize & 0x03ff] = value;
+          }
+        }
+        CartridgeMirroring::SingleScreen => {
+          ppu.name_tables[0][addr as usize & 0x03ff] = value;
         }
       }
     } else {

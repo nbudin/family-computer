@@ -117,9 +117,9 @@ impl Cartridge for CNROM {
       chr_rom,
       state: CNROMState::new(),
       mirroring: if rom.vertical_mirroring {
-        CartridgeMirroring::VERTICAL
+        CartridgeMirroring::Vertical
       } else {
-        CartridgeMirroring::HORIZONTAL
+        CartridgeMirroring::Horizontal
       },
     }
   }

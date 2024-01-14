@@ -14,6 +14,7 @@ pub struct INESRom {
   pub mapper_id: u16,
   pub playchoice_10: bool,
   pub vs_unisystem: bool,
+  pub uses_chr_ram: bool,
 }
 
 impl INESRom {
@@ -28,6 +29,7 @@ impl INESRom {
 
     let prg_size: usize = usize::from(header[4]) * 16 * 1024;
     let chr_size: usize = usize::from(header[5]) * 8 * 1024;
+    let uses_chr_ram = chr_size == 0;
 
     let flags6 = header[6];
     let has_trainer = (flags6 & 0b100) > 0;
@@ -70,6 +72,7 @@ impl INESRom {
       playchoice_10,
       vs_unisystem,
       mapper_id: u16::from(mapper_id),
+      uses_chr_ram,
     })
   }
 }

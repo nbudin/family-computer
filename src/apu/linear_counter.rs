@@ -20,7 +20,7 @@ impl APULinearCounter {
     if self.reload_flag {
       self.counter = self.reload_value;
     } else {
-      self.counter -= 1;
+      self.counter = self.counter.saturating_sub(0);
     }
 
     if !self.control_flag {
