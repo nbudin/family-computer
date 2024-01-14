@@ -1,8 +1,8 @@
 use crate::{bus::Bus, nes::NES};
 
 use super::{
-  APUFrameCounterRegister, APUPulseChannel, APUSequencerMode, APUState, APUStatusRegister,
-  APUTriangleChannel,
+  APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel, APUSequencerMode, APUState,
+  APUStatusRegister, APUTriangleChannel,
 };
 
 #[derive(Debug)]
@@ -10,6 +10,7 @@ pub struct APU {
   pub pulse1: APUPulseChannel,
   pub pulse2: APUPulseChannel,
   pub triangle: APUTriangleChannel,
+  pub noise: APUNoiseChannel,
   pub status: APUStatusRegister,
   pub frame_counter: APUFrameCounterRegister,
   pub cycle_count: u64,
@@ -23,6 +24,7 @@ impl APU {
       pulse1: APUPulseChannel::new(),
       pulse2: APUPulseChannel::new(),
       triangle: APUTriangleChannel::new(),
+      noise: APUNoiseChannel::new(),
       status: 0.into(),
       frame_counter: 0.into(),
       cycle_count: 0,
@@ -167,6 +169,9 @@ impl Bus<u16> for APU {
       0x4008 => self.triangle.write_control(value.into()),
       0x400a => self.triangle.write_timer_byte(value, false),
       0x400b => self.triangle.write_timer_byte(value, true),
+      0x400c => self.noise.write_control(value.into()),
+      0x400e => self.noise.write_mode_period(value.into()),
+      0x400f => self.noise.write_length_counter_load(value.into()),
       0x4015 => self.write_status_byte(value.into()),
       _ => {}
     }

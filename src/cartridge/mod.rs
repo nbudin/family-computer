@@ -1,11 +1,12 @@
 use dyn_clone::DynClone;
 
-use self::{cnrom::CNROM, nrom::NROM};
+use self::{cnrom::CNROM, nrom::NROM, uxrom::UxROM};
 use crate::{bus::BusInterceptor, cpu::CPUBus, nes::INESRom, ppu::PPUMemory};
 use std::fmt::Debug;
 
 mod cnrom;
 mod nrom;
+mod uxrom;
 
 pub trait CartridgeState {}
 
@@ -41,6 +42,7 @@ pub type BoxCartridge = Box<dyn Cartridge + Send + Sync>;
 pub fn load_cartridge(rom: INESRom) -> BoxCartridge {
   match rom.mapper_id {
     0 => Box::new(NROM::from_ines_rom(rom)),
+    2 => Box::new(UxROM::from_ines_rom(rom)),
     3 => Box::new(CNROM::from_ines_rom(rom)),
     _ => {
       panic!("Unsupported mapper: {}", rom.mapper_id);

@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+  sync::Arc,
+  time::{Duration, Instant},
+};
 
 use iced::{
   executor,
@@ -40,7 +43,8 @@ pub enum EmulatorUIMessage {
 
 pub struct EmulatorUI {
   crt_screen: CRTScreen,
-  last_tick_duration: Duration,
+  last_frame_duration: Duration,
+  last_frame: Instant,
   last_machine_state: MachineState,
   inbound_sender: Sender<EmulationInboundMessage>,
   outbound_receiver: Arc<Receiver<EmulationOutboundMessage>>,
@@ -61,7 +65,8 @@ impl Application for EmulatorUI {
     (
       EmulatorUI {
         crt_screen,
-        last_tick_duration: Duration::from_millis(1000),
+        last_frame_duration: Duration::from_millis(1000),
+        last_frame: Instant::now(),
         last_machine_state: MachineState::default(),
         inbound_sender,
         outbound_receiver: Arc::new(outbound_receiver),
@@ -124,7 +129,9 @@ impl Application for EmulatorUI {
         Command::none()
       }
       EmulatorUIMessage::FrameReady => {
-        // TODO do we need to actually do anything here?
+        let now = Instant::now();
+        self.last_frame_duration = now - self.last_frame;
+        self.last_frame = now;
         Command::none()
       }
       EmulatorUIMessage::MachineStateChanged(machine_state) => {
@@ -160,7 +167,7 @@ impl Application for EmulatorUI {
 
   fn view(&self) -> iced::Element<'_, Self::Message> {
     let fps_text =
-      text(format!("{:.02} FPS", 1.0 / self.last_tick_duration.as_secs_f32()).as_str())
+      text(format!("{:.02} FPS", 1.0 / self.last_frame_duration.as_secs_f32()).as_str())
         .font(PIXEL_NES_FONT)
         .size(20);
     let state_text = text(<&'static str>::from(self.last_machine_state.emulator_state).to_string())

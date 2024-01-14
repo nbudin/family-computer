@@ -73,6 +73,33 @@ pub struct APUTriangleControlRegister {
 }
 
 #[bitfield(u8)]
+pub struct APUNoiseControlRegister {
+  #[bits(4)]
+  pub volume_envelope_divider_period: u8,
+  pub constant_volume_envelope: bool,
+  pub length_counter_halt: bool,
+  #[bits(2)]
+  _unused: u8,
+}
+
+#[bitfield(u8)]
+pub struct APUNoiseModePeriodRegister {
+  #[bits(4)]
+  pub period: u8,
+  #[bits(3)]
+  _unused: u8,
+  pub mode: bool,
+}
+
+#[bitfield(u8)]
+pub struct APUNoiseLengthCounterLoadRegister {
+  #[bits(3)]
+  _unused: u8,
+  #[bits(5)]
+  pub length_counter_load: u8,
+}
+
+#[bitfield(u8)]
 pub struct APUStatusRegister {
   pub pulse1_enable: bool,
   pub pulse2_enable: bool,

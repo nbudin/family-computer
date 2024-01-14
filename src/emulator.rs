@@ -58,6 +58,7 @@ pub struct Emulator {
   nes: NES,
   state: EmulatorState,
   last_tick: Instant,
+  last_tick_duration: Duration,
   pixbuf: Arc<RwLock<Pixbuf>>,
 }
 
@@ -67,6 +68,7 @@ impl Emulator {
       nes,
       state: EmulatorState::Run,
       last_tick: Instant::now(),
+      last_tick_duration: Duration::default(),
       pixbuf,
     };
     emulator
@@ -118,6 +120,10 @@ impl Emulator {
     match self.state {
       EmulatorState::Pause => {}
       EmulatorState::Run => {
+        let now = Instant::now();
+        self.last_tick_duration = now - self.last_tick;
+        self.last_tick = now;
+
         self.nes.execute_frame(&mut self.pixbuf.write().unwrap());
         sender
           .send(EmulationOutboundMessage::MachineStateChanged(
