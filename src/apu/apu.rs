@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use crate::{bus::Bus, nes::NES};
 
 use super::{
   APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel, APUSequencerMode, APUState,
-  APUStatusRegister, APUTriangleChannel,
+  APUStatusRegister, APUTriangleChannel, NTSC_CPU_FREQUENCY,
 };
 
 #[derive(Debug)]
@@ -124,10 +126,13 @@ impl APU {
         });
 
       let new_state = APUState::capture(&nes.apu);
+      let time_since_start =
+        Duration::from_secs_f32(nes.cpu_cycle_count as f32 / NTSC_CPU_FREQUENCY);
+
       let commands = if let Some(prev_state) = &nes.apu.prev_state {
-        prev_state.diff_commands(&new_state)
+        prev_state.diff_commands(&new_state, time_since_start)
       } else {
-        new_state.commands()
+        new_state.commands(time_since_start)
       };
       for command in commands {
         nes.apu_sender.send_blocking(command).unwrap();

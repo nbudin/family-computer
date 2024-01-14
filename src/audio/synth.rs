@@ -1,8 +1,8 @@
-use std::{any::Any, collections::HashMap, fmt::Debug, hash::Hash};
+use std::{any::Any, collections::HashMap, fmt::Debug, hash::Hash, time::Duration};
 
 use cpal::{
   traits::{DeviceTrait, StreamTrait},
-  FromSample, Sample,
+  FromSample, Sample, StreamInstant,
 };
 use smol::channel::{Sender, TryRecvError};
 
@@ -10,7 +10,7 @@ use super::{audio_channel::AudioChannel, stream_setup::StreamSpawner};
 
 #[derive(Debug)]
 pub enum SynthCommand<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
-  ChannelCommand(ChannelIdentifier, Box<dyn Any + Send + Sync>),
+  ChannelCommand(ChannelIdentifier, Box<dyn Any + Send + Sync>, Duration),
 }
 
 pub struct Synth<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
@@ -45,10 +45,12 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
     let (sender, receiver) = smol::channel::unbounded::<SynthCommand<ChannelIdentifier>>();
 
     std::thread::spawn(move || {
+      let mut start_time: Option<StreamInstant> = None;
+
       let stream = device
         .build_output_stream(
           &config,
-          move |output: &mut [SampleType], _: &cpal::OutputCallbackInfo| {
+          move |output: &mut [SampleType], callback_info: &cpal::OutputCallbackInfo| {
             let command = match receiver.try_recv() {
               Ok(command) => Some(command),
               Err(recv_error) => match recv_error {
@@ -59,7 +61,21 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
             match command {
               Some(command) => match command {
-                SynthCommand::ChannelCommand(index, command) => {
+                SynthCommand::ChannelCommand(index, command, time_since_start) => {
+                  if let Some(start_time) = start_time {
+                    println!(
+                      "Command for {} processed at {}",
+                      time_since_start.as_secs_f32(),
+                      callback_info
+                        .timestamp()
+                        .playback
+                        .duration_since(&start_time)
+                        .unwrap()
+                        .as_secs_f32()
+                    );
+                  } else {
+                    start_time = Some(callback_info.timestamp().playback);
+                  }
                   channels.get_mut(&index).unwrap().handle_command(command)
                 }
               },

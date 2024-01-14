@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Duration};
 
 use crate::{apu::APUTriangleOscillatorCommand, audio::synth::SynthCommand};
 
@@ -20,23 +20,37 @@ impl APUState {
     }
   }
 
-  pub fn commands(&self) -> Vec<SynthCommand<APUSynthChannel>> {
+  pub fn commands(&self, time_since_start: Duration) -> Vec<SynthCommand<APUSynthChannel>> {
     self
       .pulse1
-      .commands()
+      .commands(time_since_start)
       .into_iter()
-      .chain(self.pulse2.commands().into_iter())
-      .chain(self.triangle.commands().into_iter())
+      .chain(self.pulse2.commands(time_since_start).into_iter())
+      .chain(self.triangle.commands(time_since_start).into_iter())
       .collect()
   }
 
-  pub fn diff_commands(&self, other: &APUState) -> Vec<SynthCommand<APUSynthChannel>> {
+  pub fn diff_commands(
+    &self,
+    other: &APUState,
+    time_since_start: Duration,
+  ) -> Vec<SynthCommand<APUSynthChannel>> {
     self
       .pulse1
-      .diff_commands(&other.pulse1)
+      .diff_commands(&other.pulse1, time_since_start)
       .into_iter()
-      .chain(self.pulse2.diff_commands(&other.pulse2).into_iter())
-      .chain(self.triangle.diff_commands(&other.triangle).into_iter())
+      .chain(
+        self
+          .pulse2
+          .diff_commands(&other.pulse2, time_since_start)
+          .into_iter(),
+      )
+      .chain(
+        self
+          .triangle
+          .diff_commands(&other.triangle, time_since_start)
+          .into_iter(),
+      )
       .collect()
   }
 }
@@ -63,34 +77,54 @@ impl APUChannelState {
     }
   }
 
-  pub fn commands(&self) -> Vec<SynthCommand<APUSynthChannel>> {
+  pub fn commands(&self, time_since_start: Duration) -> Vec<SynthCommand<APUSynthChannel>> {
     match self {
       APUChannelState::Pulse1(state) => state
         .commands()
         .into_iter()
-        .map(|command| SynthCommand::ChannelCommand(APUSynthChannel::Pulse1, Box::new(command)))
+        .map(|command| {
+          SynthCommand::ChannelCommand(APUSynthChannel::Pulse1, Box::new(command), time_since_start)
+        })
         .collect(),
       APUChannelState::Pulse2(state) => state
         .commands()
         .into_iter()
-        .map(|command| SynthCommand::ChannelCommand(APUSynthChannel::Pulse2, Box::new(command)))
+        .map(|command| {
+          SynthCommand::ChannelCommand(APUSynthChannel::Pulse2, Box::new(command), time_since_start)
+        })
         .collect(),
       APUChannelState::Triangle(state) => state
         .commands()
         .into_iter()
-        .map(|command| SynthCommand::ChannelCommand(APUSynthChannel::Triangle, Box::new(command)))
+        .map(|command| {
+          SynthCommand::ChannelCommand(
+            APUSynthChannel::Triangle,
+            Box::new(command),
+            time_since_start,
+          )
+        })
         .collect(),
     }
   }
 
-  pub fn diff_commands(&self, other: &APUChannelState) -> Vec<SynthCommand<APUSynthChannel>> {
+  pub fn diff_commands(
+    &self,
+    other: &APUChannelState,
+    time_since_start: Duration,
+  ) -> Vec<SynthCommand<APUSynthChannel>> {
     match self {
       APUChannelState::Pulse1(before) => {
         if let APUChannelState::Pulse1(after) = other {
           before
             .diff_commands(after)
             .into_iter()
-            .map(|command| SynthCommand::ChannelCommand(APUSynthChannel::Pulse1, Box::new(command)))
+            .map(|command| {
+              SynthCommand::ChannelCommand(
+                APUSynthChannel::Pulse1,
+                Box::new(command),
+                time_since_start,
+              )
+            })
             .collect()
         } else {
           panic!("Cannot diff Pulse1 channel against {:?}", other);
@@ -101,7 +135,13 @@ impl APUChannelState {
           before
             .diff_commands(after)
             .into_iter()
-            .map(|command| SynthCommand::ChannelCommand(APUSynthChannel::Pulse2, Box::new(command)))
+            .map(|command| {
+              SynthCommand::ChannelCommand(
+                APUSynthChannel::Pulse2,
+                Box::new(command),
+                time_since_start,
+              )
+            })
             .collect()
         } else {
           panic!("Cannot diff Pulse2 channel against {:?}", other);
@@ -113,7 +153,11 @@ impl APUChannelState {
             .diff_commands(after)
             .into_iter()
             .map(|command| {
-              SynthCommand::ChannelCommand(APUSynthChannel::Triangle, Box::new(command))
+              SynthCommand::ChannelCommand(
+                APUSynthChannel::Triangle,
+                Box::new(command),
+                time_since_start,
+              )
             })
             .collect()
         } else {
