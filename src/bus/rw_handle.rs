@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 pub enum RwHandle<'a, T> {
   ReadOnly(&'a T),
@@ -27,6 +27,15 @@ impl<'a, T> Deref for RwHandle<'a, T> {
     match self {
       RwHandle::ReadOnly(value) => value,
       RwHandle::ReadWrite(value) => value,
+    }
+  }
+}
+
+impl<'a, T> DerefMut for RwHandle<'a, T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    match self {
+      RwHandle::ReadOnly(_) => panic!("Cannot mutably dereference a ReadOnly RwHandle"),
+      RwHandle::ReadWrite(ref mut target) => target,
     }
   }
 }

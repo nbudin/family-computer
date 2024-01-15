@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::bus::Bus;
 
 pub enum InterceptorResult<T> {
@@ -37,6 +39,40 @@ impl<'a, AddrType: Clone, I: BusInterceptor<'a, AddrType> + ?Sized> Bus<AddrType
       InterceptorResult::Intercepted(_) => {}
       InterceptorResult::NotIntercepted => self.bus_mut().write(addr, value),
     }
+  }
+}
+
+pub struct PassthroughBusInterceptor<AddrType: Clone, BusType: Bus<AddrType>> {
+  bus: BusType,
+  _phantom: PhantomData<AddrType>,
+}
+
+impl<AddrType: Clone, BusType: Bus<AddrType>> PassthroughBusInterceptor<AddrType, BusType> {
+  pub fn new(bus: BusType) -> Self {
+    Self {
+      bus,
+      _phantom: Default::default(),
+    }
+  }
+}
+
+impl<'a, AddrType: Clone, BusType: Bus<AddrType>> BusInterceptor<'a, AddrType>
+  for PassthroughBusInterceptor<AddrType, BusType>
+{
+  fn bus(&self) -> &dyn crate::bus::Bus<AddrType> {
+    &self.bus
+  }
+
+  fn bus_mut(&mut self) -> &mut dyn crate::bus::Bus<AddrType> {
+    &mut self.bus
+  }
+
+  fn intercept_read_readonly(&self, _addr: AddrType) -> InterceptorResult<Option<u8>> {
+    InterceptorResult::NotIntercepted
+  }
+
+  fn intercept_write(&mut self, _addr: AddrType, _value: u8) -> InterceptorResult<()> {
+    InterceptorResult::NotIntercepted
   }
 }
 

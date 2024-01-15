@@ -11,7 +11,7 @@ use crate::{
   bus::{Bus, BusInterceptor, RwHandle},
   cartridge::{load_cartridge, BoxCartridge},
   cpu::{CPUBus, ExecutedInstruction, CPU},
-  ppu::{PPUMemory, Pixbuf, PPU},
+  ppu::{PPUCPUBus, PPUMemory, Pixbuf, PPU},
 };
 
 use super::{Controller, INESRom, DMA};
@@ -175,11 +175,36 @@ impl NES {
   }
 
   pub fn cpu_bus<'a>(&'a self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+    let ppu_memory = PPUMemory {
+      mask: self.ppu.mask.clone(),
+      palette_ram: RwHandle::ReadOnly(&self.ppu.palette_ram),
+      name_tables: RwHandle::ReadOnly(&self.ppu.name_tables),
+      pattern_tables: RwHandle::ReadOnly(&self.ppu.pattern_tables),
+      mirroring: self.cartridge.get_mirroring(),
+    };
+    let ppu_memory_interceptor = self.cartridge.ppu_memory_interceptor(ppu_memory);
+
+    let ppu_cpu_bus = PPUCPUBus {
+      status: RwHandle::ReadOnly(&self.ppu.status),
+      mask: RwHandle::ReadOnly(&self.ppu.mask),
+      control: RwHandle::ReadOnly(&self.ppu.control),
+      data_buffer: RwHandle::ReadOnly(&self.ppu.data_buffer),
+      oam: RwHandle::ReadOnly(&self.ppu.oam),
+      oam_addr: RwHandle::ReadOnly(&self.ppu.oam_addr),
+      vram_addr: RwHandle::ReadOnly(&self.ppu.vram_addr),
+      tram_addr: RwHandle::ReadOnly(&self.ppu.tram_addr),
+      fine_x: RwHandle::ReadOnly(&self.ppu.fine_x),
+      address_latch: RwHandle::ReadOnly(&self.ppu.address_latch),
+      status_register_read_this_tick: RwHandle::ReadOnly(&self.ppu.status_register_read_this_tick),
+      ppu_memory: ppu_memory_interceptor,
+      mirroring: self.cartridge.get_mirroring(),
+    };
+
     let bus = CPUBus {
       controllers: RwHandle::ReadOnly(&self.controllers),
       work_ram: RwHandle::ReadOnly(&self.work_ram),
       mirroring: self.cartridge.get_mirroring(),
-      ppu: RwHandle::ReadOnly(&self.ppu),
+      ppu_cpu_bus,
       dma: RwHandle::ReadOnly(&self.dma),
       apu: RwHandle::ReadOnly(&self.apu),
     };
@@ -187,21 +212,52 @@ impl NES {
   }
 
   pub fn cpu_bus_mut<'a>(&'a mut self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    let cartridge = &mut self.cartridge;
+    let mirroring = self.cartridge.get_mirroring();
+
+    let ppu_memory = PPUMemory {
+      mask: self.ppu.mask.clone(),
+      palette_ram: RwHandle::ReadWrite(&mut self.ppu.palette_ram),
+      name_tables: RwHandle::ReadWrite(&mut self.ppu.name_tables),
+      pattern_tables: RwHandle::ReadWrite(&mut self.ppu.pattern_tables),
+      mirroring: self.cartridge.get_mirroring(),
+    };
+    let ppu_memory_interceptor = self.cartridge.ppu_memory_interceptor_mut(ppu_memory);
+
+    let ppu_cpu_bus = PPUCPUBus {
+      status: RwHandle::ReadWrite(&mut self.ppu.status),
+      mask: RwHandle::ReadWrite(&mut self.ppu.mask),
+      control: RwHandle::ReadWrite(&mut self.ppu.control),
+      data_buffer: RwHandle::ReadWrite(&mut self.ppu.data_buffer),
+      oam: RwHandle::ReadWrite(&mut self.ppu.oam),
+      oam_addr: RwHandle::ReadWrite(&mut self.ppu.oam_addr),
+      vram_addr: RwHandle::ReadWrite(&mut self.ppu.vram_addr),
+      tram_addr: RwHandle::ReadWrite(&mut self.ppu.tram_addr),
+      fine_x: RwHandle::ReadWrite(&mut self.ppu.fine_x),
+      address_latch: RwHandle::ReadWrite(&mut self.ppu.address_latch),
+      status_register_read_this_tick: RwHandle::ReadWrite(
+        &mut self.ppu.status_register_read_this_tick,
+      ),
+      ppu_memory: ppu_memory_interceptor,
+      mirroring,
+    };
+
     let bus = CPUBus {
       controllers: RwHandle::ReadWrite(&mut self.controllers),
       work_ram: RwHandle::ReadWrite(&mut self.work_ram),
-      mirroring: cartridge.get_mirroring(),
-      ppu: RwHandle::ReadWrite(&mut self.ppu),
+      mirroring,
       dma: RwHandle::ReadWrite(&mut self.dma),
       apu: RwHandle::ReadWrite(&mut self.apu),
+      ppu_cpu_bus,
     };
-    cartridge.cpu_bus_interceptor_mut(bus)
+    self.cartridge.cpu_bus_interceptor_mut(bus)
   }
 
   pub fn ppu_memory<'a>(&'a self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     let bus = PPUMemory {
-      ppu: RwHandle::ReadOnly(&self.ppu),
+      mask: self.ppu.mask.clone(),
+      palette_ram: RwHandle::ReadOnly(&self.ppu.palette_ram),
+      name_tables: RwHandle::ReadOnly(&self.ppu.name_tables),
+      pattern_tables: RwHandle::ReadOnly(&self.ppu.pattern_tables),
       mirroring: self.cartridge.get_mirroring(),
     };
     self.cartridge.ppu_memory_interceptor(bus)
@@ -209,7 +265,10 @@ impl NES {
 
   pub fn ppu_memory_mut<'a>(&'a mut self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     let bus = PPUMemory {
-      ppu: RwHandle::ReadWrite(&mut self.ppu),
+      mask: self.ppu.mask.clone(),
+      palette_ram: RwHandle::ReadWrite(&mut self.ppu.palette_ram),
+      name_tables: RwHandle::ReadWrite(&mut self.ppu.name_tables),
+      pattern_tables: RwHandle::ReadWrite(&mut self.ppu.pattern_tables),
       mirroring: self.cartridge.get_mirroring(),
     };
     self.cartridge.ppu_memory_interceptor_mut(bus)

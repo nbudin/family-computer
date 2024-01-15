@@ -26,7 +26,7 @@ pub trait Cartridge: Debug + DynClone {
 
   fn cpu_bus_interceptor<'a>(&'a self, bus: CPUBus<'a>) -> Box<dyn BusInterceptor<'a, u16> + 'a>;
   fn cpu_bus_interceptor_mut<'a>(
-    &'a mut self,
+    &'a self,
     bus: CPUBus<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a>;
   fn ppu_memory_interceptor<'a>(
@@ -34,7 +34,7 @@ pub trait Cartridge: Debug + DynClone {
     bus: PPUMemory<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a>;
   fn ppu_memory_interceptor_mut<'a>(
-    &'a mut self,
+    &'a self,
     bus: PPUMemory<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a>;
   fn get_mirroring(&self) -> CartridgeMirroring;

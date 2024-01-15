@@ -3,13 +3,13 @@ use crate::{
   bus::{Bus, RwHandle},
   cartridge::CartridgeMirroring,
   nes::{Controller, DMA},
-  ppu::{PPUCPUBus, PPURegister, PPU},
+  ppu::{PPUCPUBus, PPURegister},
 };
 
 pub struct CPUBus<'a> {
   pub work_ram: RwHandle<'a, [u8; 2048]>,
   pub controllers: RwHandle<'a, [Controller; 2]>,
-  pub ppu: RwHandle<'a, PPU>,
+  pub ppu_cpu_bus: PPUCPUBus<'a>,
   pub dma: RwHandle<'a, DMA>,
   pub apu: RwHandle<'a, APU>,
   pub mirroring: CartridgeMirroring,
@@ -21,11 +21,9 @@ impl Bus<u16> for CPUBus<'_> {
       let actual_address = addr % 0x800;
       Some(self.work_ram[usize::from(actual_address)])
     } else if addr < 0x4000 {
-      let ppu_cpu_bus = PPUCPUBus {
-        mirroring: self.mirroring,
-        ppu: RwHandle::ReadOnly(&self.ppu),
-      };
-      ppu_cpu_bus.try_read_readonly(PPURegister::from_address(addr))
+      self
+        .ppu_cpu_bus
+        .try_read_readonly(PPURegister::from_address(addr))
     } else if addr == 0x4014 {
       None
     } else if addr < 0x4016 {
@@ -44,11 +42,9 @@ impl Bus<u16> for CPUBus<'_> {
   fn read_side_effects(&mut self, addr: u16) {
     if addr < 0x2000 {
     } else if addr < 0x4000 {
-      let mut ppu_cpu_bus = PPUCPUBus {
-        mirroring: self.mirroring,
-        ppu: RwHandle::ReadWrite(self.ppu.get_mut()),
-      };
-      ppu_cpu_bus.read_side_effects(PPURegister::from_address(addr))
+      self
+        .ppu_cpu_bus
+        .read_side_effects(PPURegister::from_address(addr))
     } else if addr == 0x4014 {
     } else if addr < 0x4016 {
       let apu = self.apu.get_mut();
@@ -68,11 +64,9 @@ impl Bus<u16> for CPUBus<'_> {
       let work_ram = self.work_ram.get_mut();
       work_ram[usize::from(actual_address)] = value;
     } else if addr < 0x4000 {
-      let mut ppu_cpu_bus = PPUCPUBus {
-        mirroring: self.mirroring,
-        ppu: RwHandle::ReadWrite(self.ppu.get_mut()),
-      };
-      ppu_cpu_bus.write(PPURegister::from_address(addr), value);
+      self
+        .ppu_cpu_bus
+        .write(PPURegister::from_address(addr), value);
     } else if addr == 0x4014 {
       let dma = self.dma.get_mut();
       dma.page = value;

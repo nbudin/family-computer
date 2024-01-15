@@ -1,12 +1,26 @@
 use crate::{
-  bus::{Bus, RwHandle},
+  bus::{Bus, BusInterceptor, RwHandle},
   cartridge::CartridgeMirroring,
 };
 
-use super::{PPUAddressLatch, PPULoopyRegister, PPUMemory, PPURegister, PPU};
+use super::{
+  PPUAddressLatch, PPUControlRegister, PPULoopyRegister, PPUMaskRegister, PPUOAMEntry, PPURegister,
+  PPUStatusRegister,
+};
 
 pub struct PPUCPUBus<'a> {
-  pub ppu: RwHandle<'a, PPU>,
+  pub status: RwHandle<'a, PPUStatusRegister>,
+  pub mask: RwHandle<'a, PPUMaskRegister>,
+  pub control: RwHandle<'a, PPUControlRegister>,
+  pub data_buffer: RwHandle<'a, u8>,
+  pub oam: RwHandle<'a, [PPUOAMEntry; 64]>,
+  pub oam_addr: RwHandle<'a, u8>,
+  pub vram_addr: RwHandle<'a, PPULoopyRegister>,
+  pub tram_addr: RwHandle<'a, PPULoopyRegister>,
+  pub fine_x: RwHandle<'a, u8>,
+  pub address_latch: RwHandle<'a, PPUAddressLatch>,
+  pub status_register_read_this_tick: RwHandle<'a, bool>,
+  pub ppu_memory: Box<dyn BusInterceptor<'a, u16> + 'a>,
   pub mirroring: CartridgeMirroring,
 }
 
@@ -14,22 +28,17 @@ impl Bus<PPURegister> for PPUCPUBus<'_> {
   fn try_read_readonly(&self, addr: PPURegister) -> Option<u8> {
     match addr {
       PPURegister::PPUSTATUS => {
-        Some((u8::from(self.ppu.status) & 0b11100000) | (self.ppu.data_buffer & 0b00011111))
+        Some((u8::from(*self.status) & 0b11100000) | (*self.data_buffer & 0b00011111))
       }
       PPURegister::OAMDATA => {
-        let oam_raw: &[u8; 256] = bytemuck::cast_ref(&self.ppu.oam);
-        Some(oam_raw[self.ppu.oam_addr as usize])
+        let oam_raw: &[u8; 256] = bytemuck::cast_ref(&*self.oam);
+        Some(oam_raw[*self.oam_addr as usize])
       }
       PPURegister::PPUDATA => {
-        if u16::from(self.ppu.vram_addr) > 0x3f00 {
-          // palette memory is read immediately
-          let ppu_memory = PPUMemory {
-            mirroring: self.mirroring,
-            ppu: RwHandle::ReadOnly(&self.ppu),
-          };
-          ppu_memory.try_read_readonly(self.ppu.vram_addr.into())
+        if u16::from(*self.vram_addr) > 0x3f00 {
+          self.ppu_memory.try_read_readonly((*self.vram_addr).into())
         } else {
-          Some(self.ppu.data_buffer)
+          Some(*self.data_buffer)
         }
       }
       _ => None,
@@ -37,23 +46,17 @@ impl Bus<PPURegister> for PPUCPUBus<'_> {
   }
 
   fn read_side_effects(&mut self, addr: PPURegister) {
-    let ppu = self.ppu.try_mut().unwrap();
-
     match addr {
       PPURegister::PPUSTATUS => {
-        ppu.status.set_vertical_blank(false);
-        ppu.address_latch = PPUAddressLatch::High;
-        ppu.status_register_read_this_tick = true;
+        self.status.get_mut().set_vertical_blank(false);
+        *self.address_latch.get_mut() = PPUAddressLatch::High;
+        *self.status_register_read_this_tick.get_mut() = true;
       }
       PPURegister::PPUDATA => {
-        let addr: u16 = ppu.vram_addr.into();
-        let mut ppu_memory = PPUMemory {
-          ppu: RwHandle::ReadWrite(ppu),
-          mirroring: self.mirroring,
-        };
-        ppu.data_buffer = ppu_memory.read(addr);
-        ppu.vram_addr = PPULoopyRegister::from(
-          u16::from(ppu.vram_addr) + if ppu.control.increment_mode() { 32 } else { 1 },
+        let addr: u16 = (*self.vram_addr).into();
+        *self.data_buffer = self.ppu_memory.read(addr);
+        *self.vram_addr.get_mut() = PPULoopyRegister::from(
+          u16::from(*self.vram_addr) + if self.control.increment_mode() { 32 } else { 1 },
         );
       }
       _ => {}
@@ -61,59 +64,59 @@ impl Bus<PPURegister> for PPUCPUBus<'_> {
   }
 
   fn write(&mut self, addr: PPURegister, value: u8) {
-    let ppu = self.ppu.try_mut().unwrap();
-
     match addr {
       PPURegister::PPUCTRL => {
-        ppu.control = value.into();
-        ppu.tram_addr.set_nametable_x(ppu.control.nametable_x());
-        ppu.tram_addr.set_nametable_y(ppu.control.nametable_y());
+        *self.control.get_mut() = value.into();
+        self
+          .tram_addr
+          .get_mut()
+          .set_nametable_x(self.control.nametable_x());
+        self
+          .tram_addr
+          .get_mut()
+          .set_nametable_y(self.control.nametable_y());
       }
       PPURegister::PPUMASK => {
-        ppu.mask = value.into();
+        *self.mask = value.into();
       }
       PPURegister::OAMADDR => {
-        ppu.oam_addr = value;
+        *self.oam_addr = value;
       }
       PPURegister::OAMDATA => {
-        let oam_raw: &mut [u8; 256] = bytemuck::cast_mut(&mut ppu.oam);
-        oam_raw[ppu.oam_addr as usize] = value;
+        let oam_raw: &mut [u8; 256] = bytemuck::cast_mut(&mut *self.oam);
+        oam_raw[*self.oam_addr as usize] = value;
       }
-      PPURegister::PPUSCROLL => match ppu.address_latch {
+      PPURegister::PPUSCROLL => match *self.address_latch {
         PPUAddressLatch::High => {
-          ppu.fine_x = value & 0x07;
-          ppu.tram_addr.set_coarse_x(value >> 3);
-          ppu.address_latch = PPUAddressLatch::Low;
+          *self.fine_x.get_mut() = value & 0x07;
+          self.tram_addr.get_mut().set_coarse_x(value >> 3);
+          *self.address_latch.get_mut() = PPUAddressLatch::Low;
         }
         PPUAddressLatch::Low => {
-          ppu.tram_addr.set_fine_y(value & 0x07);
-          ppu.tram_addr.set_coarse_y(value >> 3);
-          ppu.address_latch = PPUAddressLatch::High;
+          self.tram_addr.get_mut().set_fine_y(value & 0x07);
+          self.tram_addr.get_mut().set_coarse_y(value >> 3);
+          *self.address_latch.get_mut() = PPUAddressLatch::High;
         }
       },
-      PPURegister::PPUADDR => match ppu.address_latch {
+      PPURegister::PPUADDR => match *self.address_latch {
         PPUAddressLatch::High => {
-          ppu.tram_addr = PPULoopyRegister::from(
-            ((u16::from(value) & 0x003f) << 8) | (u16::from(ppu.tram_addr) & 0x00ff),
+          *self.tram_addr.get_mut() = PPULoopyRegister::from(
+            ((u16::from(value) & 0x003f) << 8) | (u16::from(*self.tram_addr) & 0x00ff),
           );
-          ppu.address_latch = PPUAddressLatch::Low;
+          *self.address_latch.get_mut() = PPUAddressLatch::Low;
         }
         PPUAddressLatch::Low => {
-          ppu.tram_addr =
-            PPULoopyRegister::from((u16::from(ppu.tram_addr) & 0xff00) | u16::from(value));
-          ppu.vram_addr = ppu.tram_addr;
-          ppu.address_latch = PPUAddressLatch::High;
+          *self.tram_addr.get_mut() =
+            PPULoopyRegister::from((u16::from(*self.tram_addr) & 0xff00) | u16::from(value));
+          *self.vram_addr.get_mut() = *self.tram_addr;
+          *self.address_latch.get_mut() = PPUAddressLatch::High;
         }
       },
       PPURegister::PPUDATA => {
-        let addr: u16 = ppu.vram_addr.into();
-        let mut ppu_memory = PPUMemory {
-          ppu: RwHandle::ReadWrite(ppu),
-          mirroring: self.mirroring,
-        };
-        ppu_memory.write(addr, value);
-        ppu.vram_addr = PPULoopyRegister::from(
-          u16::from(ppu.vram_addr) + if ppu.control.increment_mode() { 32 } else { 1 },
+        let addr: u16 = (*self.vram_addr).into();
+        self.ppu_memory.write(addr, value);
+        *self.vram_addr.get_mut() = PPULoopyRegister::from(
+          u16::from(*self.vram_addr) + if self.control.increment_mode() { 32 } else { 1 },
         );
       }
       _ => {}

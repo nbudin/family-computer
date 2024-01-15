@@ -1,6 +1,7 @@
 use bitfield_struct::bitfield;
 
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum PPURegister {
   PPUCTRL,
   PPUMASK,

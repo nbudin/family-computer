@@ -5,6 +5,7 @@ use crate::{bus::Bus, nes::NES};
 use super::{Operand, CPU};
 
 #[derive(Debug, IntoStaticStr, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum Instruction {
   ADC(Operand),
   AND(Operand),

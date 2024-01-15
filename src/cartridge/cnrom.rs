@@ -1,5 +1,7 @@
+use std::sync::{Arc, RwLock};
+
 use crate::{
-  bus::{BusInterceptor, InterceptorResult, RwHandle},
+  bus::{BusInterceptor, InterceptorResult},
   cpu::CPUBus,
   nes::INESRom,
   ppu::PPUMemory,
@@ -10,18 +12,22 @@ use super::{Cartridge, CartridgeMirroring, CartridgeState};
 #[derive(Debug, Clone)]
 pub struct CNROMState {
   pub bank_select: u8,
+  pub chr_rom: [u8; 4 * 8 * 1024],
 }
 
 impl CNROMState {
-  fn new() -> Self {
-    Self { bank_select: 0 }
+  fn new(chr_rom: [u8; 4 * 8 * 1024]) -> Self {
+    Self {
+      bank_select: 0,
+      chr_rom,
+    }
   }
 }
 
 impl CartridgeState for CNROMState {}
 
 struct CNROMCPUBusInterceptor<'a> {
-  cartridge: RwHandle<'a, CNROM>,
+  cartridge: &'a CNROM,
   bus: CPUBus<'a>,
 }
 
@@ -46,14 +52,15 @@ impl<'a> BusInterceptor<'a, u16> for CNROMCPUBusInterceptor<'a> {
     if addr < 0x8000 {
       InterceptorResult::NotIntercepted
     } else {
-      self.cartridge.get_mut().state.bank_select = value & 0b11;
+      let mut state = self.cartridge.state.write().unwrap();
+      state.bank_select = value & 0b11;
       InterceptorResult::Intercepted(())
     }
   }
 }
 
 struct CNROMPPUMemoryInterceptor<'a> {
-  cartridge: RwHandle<'a, CNROM>,
+  cartridge: &'a CNROM,
   bus: PPUMemory<'a>,
 }
 
@@ -68,9 +75,9 @@ impl<'a> BusInterceptor<'a, u16> for CNROMPPUMemoryInterceptor<'a> {
 
   fn intercept_read_readonly(&self, addr: u16) -> InterceptorResult<Option<u8>> {
     if addr < 0x2000 {
+      let state = self.cartridge.state.read().unwrap();
       InterceptorResult::Intercepted(Some(
-        self.cartridge.chr_rom
-          [(self.cartridge.state.bank_select as usize * 8 * 1024) + usize::from(addr)],
+        state.chr_rom[(state.bank_select as usize * 8 * 1024) + usize::from(addr)],
       ))
     } else {
       InterceptorResult::NotIntercepted
@@ -79,8 +86,9 @@ impl<'a> BusInterceptor<'a, u16> for CNROMPPUMemoryInterceptor<'a> {
 
   fn intercept_write(&mut self, addr: u16, value: u8) -> InterceptorResult<()> {
     if addr < 0x2000 {
-      let addr = (self.cartridge.state.bank_select as usize * 8 * 1024) + usize::from(addr);
-      self.cartridge.get_mut().chr_rom[addr] = value;
+      let mut state = self.cartridge.state.write().unwrap();
+      let addr = (state.bank_select as usize * 8 * 1024) + usize::from(addr);
+      state.chr_rom[addr] = value;
       InterceptorResult::Intercepted(())
     } else {
       InterceptorResult::NotIntercepted
@@ -91,8 +99,7 @@ impl<'a> BusInterceptor<'a, u16> for CNROMPPUMemoryInterceptor<'a> {
 #[derive(Debug, Clone)]
 pub struct CNROM {
   pub prg_rom: [u8; 32 * 1024],
-  pub chr_rom: [u8; 4 * 8 * 1024],
-  pub state: CNROMState,
+  pub state: Arc<RwLock<CNROMState>>,
   mirroring: CartridgeMirroring,
 }
 
@@ -114,8 +121,7 @@ impl Cartridge for CNROM {
 
     Self {
       prg_rom,
-      chr_rom,
-      state: CNROMState::new(),
+      state: Arc::new(RwLock::new(CNROMState::new(chr_rom))),
       mirroring: if rom.vertical_mirroring {
         CartridgeMirroring::Vertical
       } else {
@@ -126,17 +132,17 @@ impl Cartridge for CNROM {
 
   fn cpu_bus_interceptor<'a>(&'a self, bus: CPUBus<'a>) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     Box::new(CNROMCPUBusInterceptor {
-      cartridge: RwHandle::ReadOnly(self),
+      cartridge: &self,
       bus,
     })
   }
 
   fn cpu_bus_interceptor_mut<'a>(
-    &'a mut self,
+    &'a self,
     bus: CPUBus<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     Box::new(CNROMCPUBusInterceptor {
-      cartridge: RwHandle::ReadWrite(self),
+      cartridge: &self,
       bus,
     })
   }
@@ -146,17 +152,17 @@ impl Cartridge for CNROM {
     bus: PPUMemory<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     Box::new(CNROMPPUMemoryInterceptor {
-      cartridge: RwHandle::ReadOnly(self),
+      cartridge: &self,
       bus,
     })
   }
 
   fn ppu_memory_interceptor_mut<'a>(
-    &'a mut self,
+    &'a self,
     bus: PPUMemory<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     Box::new(CNROMPPUMemoryInterceptor {
-      cartridge: RwHandle::ReadWrite(self),
+      cartridge: &self,
       bus,
     })
   }

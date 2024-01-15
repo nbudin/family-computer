@@ -1,4 +1,10 @@
-use std::{any::Any, collections::HashMap, fmt::Debug, hash::Hash, time::Duration};
+use std::{
+  any::Any,
+  collections::{HashMap, VecDeque},
+  fmt::Debug,
+  hash::Hash,
+  time::Duration,
+};
 
 use cpal::{
   traits::{DeviceTrait, StreamTrait},
@@ -11,6 +17,16 @@ use super::{audio_channel::AudioChannel, stream_setup::StreamSpawner};
 #[derive(Debug)]
 pub enum SynthCommand<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
   ChannelCommand(ChannelIdentifier, Box<dyn Any + Send + Sync>, Duration),
+}
+
+impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send>
+  SynthCommand<ChannelIdentifier>
+{
+  pub fn time(&self) -> Duration {
+    match self {
+      SynthCommand::ChannelCommand(_, _, time) => time.to_owned(),
+    }
+  }
 }
 
 pub struct Synth<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
@@ -46,40 +62,67 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
     std::thread::spawn(move || {
       let mut start_time: Option<StreamInstant> = None;
+      let mut command_queue: VecDeque<SynthCommand<ChannelIdentifier>> =
+        VecDeque::with_capacity(32);
+      let mut last_channel_recv: Option<StreamInstant> = None;
+      let receive_interval = Duration::from_millis(2);
 
       let stream = device
         .build_output_stream(
           &config,
           move |output: &mut [SampleType], callback_info: &cpal::OutputCallbackInfo| {
-            let command = match receiver.try_recv() {
-              Ok(command) => Some(command),
-              Err(recv_error) => match recv_error {
-                TryRecvError::Empty => None,
-                TryRecvError::Closed => panic!(),
-              },
-            };
+            let timestamp = callback_info.timestamp();
+            let should_receive = last_channel_recv.is_none()
+              || last_channel_recv.is_some_and(|last_channel_recv| {
+                timestamp.callback.duration_since(&last_channel_recv) > Some(receive_interval)
+              });
 
-            match command {
-              Some(command) => match command {
-                SynthCommand::ChannelCommand(index, command, time_since_start) => {
-                  if let Some(start_time) = start_time {
-                    println!(
-                      "Command for {} processed at {}",
-                      time_since_start.as_secs_f32(),
-                      callback_info
-                        .timestamp()
-                        .playback
-                        .duration_since(&start_time)
-                        .unwrap()
-                        .as_secs_f32()
-                    );
+            if should_receive {
+              last_channel_recv = Some(timestamp.callback);
+              loop {
+                let command = match receiver.try_recv() {
+                  Ok(command) => command,
+                  Err(recv_error) => match recv_error {
+                    TryRecvError::Empty => break,
+                    TryRecvError::Closed => panic!(),
+                  },
+                };
+
+                command_queue.push_back(command);
+              }
+            }
+
+            let mut commands_to_run_now: Vec<SynthCommand<ChannelIdentifier>> = Vec::new();
+
+            if let Some(start_time) = start_time {
+              let playback_time_since_start = timestamp
+                .playback
+                .duration_since(&start_time)
+                .unwrap_or_default();
+              loop {
+                let command = command_queue.pop_front();
+
+                if let Some(command) = command {
+                  if command.time() > playback_time_since_start {
+                    command_queue.push_front(command);
+                    break;
                   } else {
-                    start_time = Some(callback_info.timestamp().playback);
+                    commands_to_run_now.push(command);
                   }
+                } else {
+                  break;
+                }
+              }
+            } else {
+              start_time = Some(timestamp.playback);
+            }
+
+            for command in commands_to_run_now {
+              match command {
+                SynthCommand::ChannelCommand(index, command, _) => {
                   channels.get_mut(&index).unwrap().handle_command(command)
                 }
-              },
-              None => {}
+              }
             }
 
             process_frame(

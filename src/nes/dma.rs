@@ -1,6 +1,7 @@
 use crate::ppu::PPUOAMEntry;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct DMA {
   pub page: u8,
   pub addr: u8,
@@ -37,5 +38,11 @@ impl DMA {
       self.transfer = false;
       self.dummy = true;
     }
+  }
+}
+
+impl Default for DMA {
+  fn default() -> Self {
+    Self::new()
   }
 }
