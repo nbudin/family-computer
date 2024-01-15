@@ -1,4 +1,6 @@
-use crate::{bus::Bus, nes::NES};
+use crate::bus::{Bus, BusInterceptor};
+
+use super::CPU;
 
 #[derive(Debug, Clone)]
 pub enum Operand {
@@ -17,43 +19,44 @@ pub enum Operand {
 }
 
 impl Operand {
-  pub fn get_addr(&self, nes: &mut NES) -> (u16, bool) {
+  pub fn get_addr(
+    &self,
+    cpu: &CPU,
+    cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>,
+  ) -> (u16, bool) {
     let mut page_boundary_crossed = false;
     let result_addr = match self {
       Operand::ZeroPage(addr) => u16::from(*addr),
-      Operand::ZeroPageX(addr) => u16::from(nes.cpu.x.wrapping_add(*addr)),
-      Operand::ZeroPageY(addr) => u16::from(nes.cpu.y.wrapping_add(*addr)),
+      Operand::ZeroPageX(addr) => u16::from(cpu.x.wrapping_add(*addr)),
+      Operand::ZeroPageY(addr) => u16::from(cpu.y.wrapping_add(*addr)),
       Operand::Absolute(addr) => *addr,
       Operand::AbsoluteX(addr) => {
-        let new_addr = (*addr).wrapping_add(u16::from(nes.cpu.x));
+        let new_addr = (*addr).wrapping_add(u16::from(cpu.x));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
       Operand::AbsoluteY(addr) => {
-        let new_addr = (*addr).wrapping_add(u16::from(nes.cpu.y));
+        let new_addr = (*addr).wrapping_add(u16::from(cpu.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
       Operand::Indirect(addr) => {
-        let low = nes.cpu_bus_mut().read(*addr);
-        let high = nes
-          .cpu_bus_mut()
+        let low = cpu_bus.read(*addr);
+        let high = cpu_bus
           .read((*addr & 0xff00) + u16::from(u8::try_from(*addr & 0xff).unwrap().wrapping_add(1)));
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectX(addr) => {
-        let addr_location = nes.cpu.x.wrapping_add(*addr);
-        let low = nes.cpu_bus_mut().read(u16::from(addr_location));
-        let high = nes
-          .cpu_bus_mut()
-          .read(u16::from(addr_location.wrapping_add(1)));
+        let addr_location = cpu.x.wrapping_add(*addr);
+        let low = cpu_bus.read(u16::from(addr_location));
+        let high = cpu_bus.read(u16::from(addr_location.wrapping_add(1)));
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectY(zp_addr) => {
-        let low = nes.cpu_bus_mut().read(u16::from(*zp_addr));
-        let high = nes.cpu_bus_mut().read(u16::from(zp_addr.wrapping_add(1)));
+        let low = cpu_bus.read(u16::from(*zp_addr));
+        let high = cpu_bus.read(u16::from(zp_addr.wrapping_add(1)));
         let addr = (u16::from(high) << 8) + u16::from(low);
-        let new_addr = addr.wrapping_add(u16::from(nes.cpu.y));
+        let new_addr = addr.wrapping_add(u16::from(cpu.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
@@ -65,45 +68,45 @@ impl Operand {
     (result_addr, page_boundary_crossed)
   }
 
-  pub fn get_addr_readonly(&self, nes: &NES) -> (u16, bool) {
+  pub fn get_addr_readonly(
+    &self,
+    cpu: &CPU,
+    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
+  ) -> (u16, bool) {
     let mut page_boundary_crossed = false;
     let result_addr = match self {
       Operand::ZeroPage(addr) => u16::from(*addr),
-      Operand::ZeroPageX(addr) => u16::from(nes.cpu.x.wrapping_add(*addr)),
-      Operand::ZeroPageY(addr) => u16::from(nes.cpu.y.wrapping_add(*addr)),
+      Operand::ZeroPageX(addr) => u16::from(cpu.x.wrapping_add(*addr)),
+      Operand::ZeroPageY(addr) => u16::from(cpu.y.wrapping_add(*addr)),
       Operand::Absolute(addr) => *addr,
       Operand::AbsoluteX(addr) => {
-        let new_addr = (*addr).wrapping_add(u16::from(nes.cpu.x));
+        let new_addr = (*addr).wrapping_add(u16::from(cpu.x));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
       Operand::AbsoluteY(addr) => {
-        let new_addr = (*addr).wrapping_add(u16::from(nes.cpu.y));
+        let new_addr = (*addr).wrapping_add(u16::from(cpu.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
       Operand::Indirect(addr) => {
-        let low = nes.cpu_bus().read_readonly(*addr);
-        let high = nes.cpu_bus().read_readonly(
+        let low = cpu_bus.read_readonly(*addr);
+        let high = cpu_bus.read_readonly(
           (*addr & 0xff00) + u16::from(u8::try_from(*addr & 0xff).unwrap().wrapping_add(1)),
         );
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectX(addr) => {
-        let addr_location = nes.cpu.x.wrapping_add(*addr);
-        let low = nes.cpu_bus().read_readonly(u16::from(addr_location));
-        let high = nes
-          .cpu_bus()
-          .read_readonly(u16::from(addr_location.wrapping_add(1)));
+        let addr_location = cpu.x.wrapping_add(*addr);
+        let low = cpu_bus.read_readonly(u16::from(addr_location));
+        let high = cpu_bus.read_readonly(u16::from(addr_location.wrapping_add(1)));
         (u16::from(high) << 8) + u16::from(low)
       }
       Operand::IndirectY(zp_addr) => {
-        let low = nes.cpu_bus().read_readonly(u16::from(*zp_addr));
-        let high = nes
-          .cpu_bus()
-          .read_readonly(u16::from(zp_addr.wrapping_add(1)));
+        let low = cpu_bus.read_readonly(u16::from(*zp_addr));
+        let high = cpu_bus.read_readonly(u16::from(zp_addr.wrapping_add(1)));
         let addr = (u16::from(high) << 8) + u16::from(low);
-        let new_addr = addr.wrapping_add(u16::from(nes.cpu.y));
+        let new_addr = addr.wrapping_add(u16::from(cpu.y));
         page_boundary_crossed = (new_addr & 0xff00) != (addr & 0xff00);
         new_addr
       }
@@ -115,24 +118,28 @@ impl Operand {
     (result_addr, page_boundary_crossed)
   }
 
-  pub fn eval(&self, nes: &mut NES) -> (u8, bool) {
+  pub fn eval(&self, cpu: &CPU, cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>) -> (u8, bool) {
     match self {
-      Operand::Accumulator => (nes.cpu.a, false),
+      Operand::Accumulator => (cpu.a, false),
       Operand::Immediate(value) => (*value, false),
       _ => {
-        let (addr, page_boundary_crossed) = self.get_addr(nes);
-        (nes.cpu_bus_mut().read(addr), page_boundary_crossed)
+        let (addr, page_boundary_crossed) = self.get_addr(cpu, cpu_bus);
+        (cpu_bus.read(addr), page_boundary_crossed)
       }
     }
   }
 
-  pub fn eval_readonly(&self, nes: &NES) -> (u8, bool) {
+  pub fn eval_readonly(
+    &self,
+    cpu: &CPU,
+    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
+  ) -> (u8, bool) {
     match self {
-      Operand::Accumulator => (nes.cpu.a, false),
+      Operand::Accumulator => (cpu.a, false),
       Operand::Immediate(value) => (*value, false),
       _ => {
-        let (addr, page_boundary_crossed) = self.get_addr_readonly(nes);
-        (nes.cpu_bus().read_readonly(addr), page_boundary_crossed)
+        let (addr, page_boundary_crossed) = self.get_addr_readonly(cpu, cpu_bus);
+        (cpu_bus.read_readonly(addr), page_boundary_crossed)
       }
     }
   }

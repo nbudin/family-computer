@@ -134,7 +134,10 @@ impl NES {
           }
         } else if self.ppu_cycle_count % 2 == 0 {
           let addr = self.dma.ram_addr();
-          let value = self.cpu_bus_mut().as_mut().read(addr);
+          let value = {
+            let (mut cpu_bus, _) = self.cpu_bus_mut();
+            cpu_bus.read(addr)
+          };
           self.dma.store_data(value);
         } else {
           self.dma.write_to_ppu(&mut self.ppu.oam);
@@ -168,7 +171,11 @@ impl NES {
   }
 
   pub fn reset(&mut self) {
-    CPU::reset(self);
+    {
+      let (mut cpu_bus, mut cpu) = self.cpu_bus_mut();
+      CPU::reset(&mut cpu_bus, &mut cpu);
+    }
+
     self.ppu_cycle_count = 0;
     self.cpu_cycle_count = 0;
   }
@@ -210,7 +217,9 @@ impl NES {
     self.cartridge.cpu_bus_interceptor(bus)
   }
 
-  pub fn cpu_bus_mut<'a>(&'a mut self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
+  pub fn cpu_bus_mut<'a>(
+    &'a mut self,
+  ) -> (Box<dyn BusInterceptor<'a, u16> + 'a>, RwHandle<'a, CPU>) {
     let mirroring = self.cartridge.get_mirroring();
 
     let ppu_memory = PPUMemory {
@@ -248,7 +257,11 @@ impl NES {
       apu: RwHandle::ReadWrite(&mut self.apu),
       ppu_cpu_bus,
     };
-    self.cartridge.cpu_bus_interceptor_mut(bus)
+
+    (
+      self.cartridge.cpu_bus_interceptor_mut(bus),
+      RwHandle::ReadWrite(&mut self.cpu),
+    )
   }
 
   pub fn ppu_memory<'a>(&'a self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {

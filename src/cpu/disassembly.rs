@@ -1,6 +1,9 @@
 use std::fmt::{Debug, Display};
 
-use crate::{bus::Bus, nes::NES, ppu::PPUAddressLatch};
+use crate::{
+  bus::{Bus, BusInterceptor},
+  ppu::PPUAddressLatch,
+};
 
 use super::{Instruction, Operand, CPU};
 
@@ -118,7 +121,11 @@ impl Display for DisassembledInstruction {
 }
 
 impl Instruction {
-  pub fn disassemble(&self, nes: &NES) -> DisassembledInstruction {
+  pub fn disassemble(
+    &self,
+    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
+    cpu: &CPU,
+  ) -> DisassembledInstruction {
     let eval = match &self {
       Instruction::JSR(_) => false,
       Instruction::JMP(op) => matches!(op, &Operand::Indirect(_)),
@@ -128,7 +135,7 @@ impl Instruction {
     match self.operand() {
       Some(op) => DisassembledInstruction {
         instruction: self.clone(),
-        operand: Some(op.disassemble(nes, eval)),
+        operand: Some(op.disassemble(cpu_bus, cpu, eval)),
       },
       None => DisassembledInstruction {
         instruction: self.clone(),
@@ -269,46 +276,59 @@ impl Display for DisassembledOperand {
 }
 
 impl Operand {
-  fn disassemble(&self, nes: &NES, eval: bool) -> DisassembledOperand {
+  fn disassemble(
+    &self,
+    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
+    cpu: &CPU,
+    eval: bool,
+  ) -> DisassembledOperand {
     match self {
       Operand::Accumulator => DisassembledOperand::Accumulator,
       Operand::Immediate(value) => DisassembledOperand::Immediate { value: *value },
       Operand::Absolute(addr) => DisassembledOperand::Absolute {
         addr: *addr,
         result: if eval {
-          Some(self.eval_readonly(nes).0)
+          Some(self.eval_readonly(cpu, cpu_bus).0)
         } else {
           None
         },
       },
       Operand::AbsoluteX(base_addr) => DisassembledOperand::AbsoluteX {
         base_addr: *base_addr,
-        result: self.get_eval_result(nes, eval, || self.get_addr_readonly(nes).0),
+        result: self.get_eval_result(cpu_bus, cpu, eval, || {
+          self.get_addr_readonly(cpu, cpu_bus).0
+        }),
       },
       Operand::AbsoluteY(base_addr) => DisassembledOperand::AbsoluteY {
         base_addr: *base_addr,
-        result: self.get_eval_result(nes, eval, || self.get_addr_readonly(nes).0),
+        result: self.get_eval_result(cpu_bus, cpu, eval, || {
+          self.get_addr_readonly(cpu, cpu_bus).0
+        }),
       },
       Operand::ZeroPage(zp_addr) => DisassembledOperand::ZeroPage {
         zp_addr: *zp_addr,
         result: if eval {
-          Some(self.eval_readonly(nes).0)
+          Some(self.eval_readonly(cpu, cpu_bus).0)
         } else {
           None
         },
       },
       Operand::ZeroPageX(zp_addr) => DisassembledOperand::ZeroPageX {
         zp_addr: *zp_addr,
-        result: self.get_eval_result(nes, eval, || self.get_addr_readonly(nes).0 as u8),
+        result: self.get_eval_result(cpu_bus, cpu, eval, || {
+          self.get_addr_readonly(cpu, cpu_bus).0 as u8
+        }),
       },
       Operand::ZeroPageY(zp_addr) => DisassembledOperand::ZeroPageY {
         zp_addr: *zp_addr,
-        result: self.get_eval_result(nes, eval, || self.get_addr_readonly(nes).0 as u8),
+        result: self.get_eval_result(cpu_bus, cpu, eval, || {
+          self.get_addr_readonly(cpu, cpu_bus).0 as u8
+        }),
       },
       Operand::Indirect(addr) => DisassembledOperand::Indirect {
         addr: *addr,
         result_addr: if eval {
-          Some(self.get_addr_readonly(nes).0)
+          Some(self.get_addr_readonly(cpu, cpu_bus).0)
         } else {
           None
         },
@@ -316,39 +336,42 @@ impl Operand {
       Operand::IndirectX(zp_addr) => DisassembledOperand::IndirectX {
         zp_addr: *zp_addr,
         result: self
-          .get_eval_result(nes, eval, || self.get_addr_readonly(nes).0)
-          .map(|result| (nes.cpu.x, result)),
+          .get_eval_result(cpu_bus, cpu, eval, || {
+            self.get_addr_readonly(cpu, cpu_bus).0
+          })
+          .map(|result| (cpu.x, result)),
       },
       Operand::IndirectY(zp_addr) => DisassembledOperand::IndirectY {
         zp_addr: *zp_addr,
         result: self
-          .get_eval_result(nes, eval, || self.get_addr_readonly(nes).0)
+          .get_eval_result(cpu_bus, cpu, eval, || {
+            self.get_addr_readonly(cpu, cpu_bus).0
+          })
           .map(|result| {
-            let low = nes.cpu_bus().read_readonly(u16::from(*zp_addr));
-            let high = nes
-              .cpu_bus()
-              .read_readonly(u16::from(zp_addr.wrapping_add(1)));
+            let low = cpu_bus.read_readonly(u16::from(*zp_addr));
+            let high = cpu_bus.read_readonly(u16::from(zp_addr.wrapping_add(1)));
             let intermediate_addr = (u16::from(high) << 8) + u16::from(low);
             (intermediate_addr, result)
           }),
       },
       Operand::Relative(offset) => DisassembledOperand::Relative {
         offset: *offset,
-        pc: nes.cpu.pc,
+        pc: cpu.pc,
       },
     }
   }
 
   fn get_eval_result<AddrType: Clone + Debug, F: FnOnce() -> AddrType>(
     &self,
-    nes: &NES,
+    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
+    cpu: &CPU,
     eval: bool,
     f: F,
   ) -> Option<DisassemblyEvalResult<AddrType>> {
     if eval {
       Some(DisassemblyEvalResult {
         addr: f(),
-        value: self.eval_readonly(nes).0,
+        value: self.eval_readonly(cpu, cpu_bus).0,
       })
     } else {
       None

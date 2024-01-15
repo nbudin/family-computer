@@ -52,6 +52,7 @@ pub enum EmulationInboundMessage {
 pub enum EmulationOutboundMessage {
   FrameReady,
   MachineStateChanged(MachineState),
+  Shutdown,
 }
 
 pub struct Emulator {
@@ -64,7 +65,6 @@ pub struct Emulator {
 
 impl Emulator {
   pub fn new(nes: NES, pixbuf: Arc<RwLock<Pixbuf>>) -> Self {
-    
     Self {
       nes,
       state: EmulatorState::Run,

@@ -1058,6 +1058,7 @@ dependencies = [
  "dyn-clone",
  "fastapprox",
  "iced",
+ "iced_runtime",
  "native-dialog",
  "similar-asserts",
  "smol",

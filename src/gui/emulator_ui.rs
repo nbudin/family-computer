@@ -39,6 +39,7 @@ pub enum EmulatorUIMessage {
   FontLoaded(Result<(), iced::font::Error>),
   FrameReady,
   MachineStateChanged(MachineState),
+  Shutdown,
 }
 
 pub struct EmulatorUI {
@@ -138,6 +139,9 @@ impl Application for EmulatorUI {
         self.last_machine_state = machine_state;
         Command::none()
       }
+      EmulatorUIMessage::Shutdown => Command::single(iced_runtime::command::Action::Window(
+        iced::window::Action::Close,
+      )),
     }
   }
 
@@ -151,12 +155,17 @@ impl Application for EmulatorUI {
       iced::subscription::unfold("emulator-outbound", (), move |()| {
         let outbound_receiver = outbound_receiver.clone();
         async move {
-          let outbound_message = outbound_receiver.recv().await.unwrap();
+          let recv_result = outbound_receiver.recv().await;
+          let outbound_message = match recv_result {
+            Ok(msg) => msg,
+            Err(_) => EmulationOutboundMessage::Shutdown,
+          };
           let ui_message = match outbound_message {
             EmulationOutboundMessage::FrameReady => EmulatorUIMessage::FrameReady,
             EmulationOutboundMessage::MachineStateChanged(state) => {
               EmulatorUIMessage::MachineStateChanged(state)
             }
+            EmulationOutboundMessage::Shutdown => EmulatorUIMessage::Shutdown,
           };
 
           (ui_message, ())

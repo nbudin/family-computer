@@ -3,6 +3,10 @@ use std::{
   collections::{HashMap, VecDeque},
   fmt::Debug,
   hash::Hash,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+  },
   time::Duration,
 };
 
@@ -66,6 +70,9 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
         VecDeque::with_capacity(32);
       let mut last_channel_recv: Option<StreamInstant> = None;
       let receive_interval = Duration::from_millis(2);
+      let shutdown = Arc::new(AtomicBool::new(false));
+      let shutdown_sender = shutdown.clone();
+      let control_thread = std::thread::current();
 
       let stream = device
         .build_output_stream(
@@ -83,8 +90,15 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
                 let command = match receiver.try_recv() {
                   Ok(command) => command,
                   Err(recv_error) => match recv_error {
-                    TryRecvError::Empty => break,
-                    TryRecvError::Closed => panic!(),
+                    TryRecvError::Empty => {
+                      break;
+                    }
+                    TryRecvError::Closed => {
+                      shutdown_sender.store(true, Ordering::Relaxed);
+                      control_thread.unpark();
+                      println!("Shutting down control thread");
+                      break;
+                    }
                   },
                 };
 
@@ -142,7 +156,11 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
       stream.play().unwrap();
 
-      std::thread::park();
+      while !shutdown.load(Ordering::Relaxed) {
+        std::thread::park();
+      }
+
+      println!("Audio thread received shutdown signal");
     });
 
     Ok(sender)
