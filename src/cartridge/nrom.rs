@@ -100,6 +100,7 @@ impl<'a> BusInterceptor<'a, u16> for NROMPPUMemoryInterceptor<'a> {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct NROM {
   pub prg_rom: [u8; 32 * 1024],
   pub state: Arc<RwLock<NROMState>>,

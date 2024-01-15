@@ -88,7 +88,7 @@ impl PPU {
       let diff = nes.ppu.scanline - entry.y() as i32;
       if diff >= 0 && diff < nes.ppu.control.sprite_height().into() {
         nes.ppu.sprite_scanline.push(ActiveSprite {
-          oam_entry: entry.clone(),
+          oam_entry: *entry,
           oam_index,
         });
       }
@@ -140,11 +140,11 @@ impl PPU {
         if top_half {
           (((sprite.oam_entry.tile_id() as u16) & 0x01) << 12)
             | ((((sprite.oam_entry.tile_id() as u16) & 0xfe) + 1) << 4)
-            | (7 - ((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16)) & 0x07)
+            | ((7 - ((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16))) & 0x07)
         } else {
           (((sprite.oam_entry.tile_id() as u16) & 0x01) << 12)
             | (((sprite.oam_entry.tile_id() as u16) & 0xfe) << 4)
-            | (7 - ((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16)) & 0x07)
+            | ((7 - ((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16))) & 0x07)
         }
       }
     };

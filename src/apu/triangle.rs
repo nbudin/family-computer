@@ -79,6 +79,12 @@ pub struct APUTriangleChannel {
   pub sequencer: APUSequencer,
 }
 
+impl Default for APUTriangleChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APUTriangleChannel {
   pub fn new() -> Self {
     Self {

@@ -15,6 +15,12 @@ pub struct APUNoiseChannel {
   pub shift_register: APUSequencer,
 }
 
+impl Default for APUNoiseChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APUNoiseChannel {
   pub fn new() -> Self {
     let mut shift_register = APUSequencer::new();

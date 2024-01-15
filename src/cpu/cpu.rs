@@ -19,6 +19,7 @@ pub struct CPUStatusRegister {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct CPU {
   pub wait_cycles: u8,
   pub pc: u16,
@@ -185,7 +186,7 @@ impl CPU {
 
     let (instruction, opcode) = Instruction::load_instruction(nes);
     nes.cpu.wait_cycles = instruction.base_cycles() - 1;
-    let disassembled_instruction = instruction.disassemble(&nes);
+    let disassembled_instruction = instruction.disassemble(nes);
     CPU::execute_instruction(&instruction, nes, true);
 
     Some(ExecutedInstruction {
@@ -241,7 +242,7 @@ impl CPU {
       Instruction::ASL(op) => {
         let (value, _) = op.eval(nes);
         let result = value << 1;
-        CPU::set_operand(&op, result, nes);
+        CPU::set_operand(op, result, nes);
         nes.cpu.p.set_carry_flag(value & 0b10000000 > 0);
         nes.cpu.p.set_negative_flag(result & 0b10000000 > 0);
         nes.cpu.p.set_zero_flag(result == 0);
@@ -250,7 +251,7 @@ impl CPU {
       Instruction::BCC(addr) => {
         if !nes.cpu.p.carry_flag() {
           nes.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, nes) {
+          if CPU::set_pc(addr, nes) {
             nes.cpu.wait_cycles += 1;
           }
         }
@@ -259,7 +260,7 @@ impl CPU {
       Instruction::BCS(addr) => {
         if nes.cpu.p.carry_flag() {
           nes.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, nes) {
+          if CPU::set_pc(addr, nes) {
             nes.cpu.wait_cycles += 1;
           }
         }
@@ -268,7 +269,7 @@ impl CPU {
       Instruction::BEQ(addr) => {
         if nes.cpu.p.zero_flag() {
           nes.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, nes) {
+          if CPU::set_pc(addr, nes) {
             nes.cpu.wait_cycles += 1;
           }
         }
@@ -284,7 +285,7 @@ impl CPU {
       Instruction::BMI(addr) => {
         if nes.cpu.p.negative_flag() {
           nes.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, nes) {
+          if CPU::set_pc(addr, nes) {
             nes.cpu.wait_cycles += 1;
           }
         }
@@ -293,7 +294,7 @@ impl CPU {
       Instruction::BNE(addr) => {
         if !nes.cpu.p.zero_flag() {
           nes.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, nes) {
+          if CPU::set_pc(addr, nes) {
             nes.cpu.wait_cycles += 1;
           }
         }
@@ -302,7 +303,7 @@ impl CPU {
       Instruction::BPL(addr) => {
         if !nes.cpu.p.negative_flag() {
           nes.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, nes) {
+          if CPU::set_pc(addr, nes) {
             nes.cpu.wait_cycles += 1;
           }
         }
@@ -326,7 +327,7 @@ impl CPU {
       Instruction::BVC(addr) => {
         if !nes.cpu.p.overflow_flag() {
           nes.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, nes) {
+          if CPU::set_pc(addr, nes) {
             nes.cpu.wait_cycles += 1;
           }
         }
@@ -335,7 +336,7 @@ impl CPU {
       Instruction::BVS(addr) => {
         if nes.cpu.p.overflow_flag() {
           nes.cpu.wait_cycles += 1;
-          if CPU::set_pc(&addr, nes) {
+          if CPU::set_pc(addr, nes) {
             nes.cpu.wait_cycles += 1;
           }
         }
@@ -399,7 +400,7 @@ impl CPU {
 
       Instruction::DEC(op) => {
         let value = op.eval(nes).0.wrapping_sub(1);
-        CPU::set_operand(&op, value, nes);
+        CPU::set_operand(op, value, nes);
         nes.cpu.p.set_zero_flag(value == 0);
         nes.cpu.p.set_negative_flag((value & 0b10000000) > 0);
       }
@@ -433,7 +434,7 @@ impl CPU {
 
       Instruction::INC(op) => {
         let value = op.eval(nes).0.wrapping_add(1);
-        CPU::set_operand(&op, value, nes);
+        CPU::set_operand(op, value, nes);
         nes.cpu.p.set_zero_flag(value == 0);
         nes.cpu.p.set_negative_flag((value & 0b10000000) > 0);
       }
@@ -458,7 +459,7 @@ impl CPU {
       }
 
       Instruction::JMP(addr) => {
-        CPU::set_pc(&addr, nes);
+        CPU::set_pc(addr, nes);
       }
 
       Instruction::JSR(addr) => {
@@ -467,7 +468,7 @@ impl CPU {
         let high: u8 = (return_point >> 8).try_into().unwrap();
         CPU::push_stack(high, nes);
         CPU::push_stack(low, nes);
-        CPU::set_pc(&addr, nes);
+        CPU::set_pc(addr, nes);
       }
 
       Instruction::LAX(addr) => {
@@ -508,7 +509,7 @@ impl CPU {
       Instruction::LSR(op) => {
         let (value, _) = op.eval(nes);
         let result = value >> 1;
-        CPU::set_operand(&op, result, nes);
+        CPU::set_operand(op, result, nes);
         nes.cpu.p.set_carry_flag(value & 0b1 == 1);
         nes.cpu.p.set_zero_flag(result == 0);
         nes.cpu.p.set_negative_flag(false); // always false because we always put a 0 into bit 7
@@ -521,7 +522,7 @@ impl CPU {
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           nes.cpu.wait_cycles += 1;
         }
-        nes.cpu.a = nes.cpu.a | value;
+        nes.cpu.a |= value;
         nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
         nes.cpu.p.set_negative_flag((nes.cpu.a & (1 << 7)) > 0);
       }
@@ -564,7 +565,7 @@ impl CPU {
       Instruction::ROL(op) => {
         let (value, _) = op.eval(nes);
         let result = value << 1 | (nes.cpu.p.carry_flag() as u8);
-        CPU::set_operand(&op, result, nes);
+        CPU::set_operand(op, result, nes);
         nes.cpu.p.set_carry_flag(value & 0b10000000 > 0);
         nes.cpu.p.set_negative_flag(result & 0b10000000 > 0);
         nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
@@ -573,7 +574,7 @@ impl CPU {
       Instruction::ROR(op) => {
         let (value, _) = op.eval(nes);
         let result = value >> 1 | ((nes.cpu.p.carry_flag() as u8) << 7);
-        CPU::set_operand(&op, result, nes);
+        CPU::set_operand(op, result, nes);
         nes.cpu.p.set_carry_flag(value & 0b1 > 0);
         nes.cpu.p.set_negative_flag(result & 0b10000000 > 0);
         nes.cpu.p.set_zero_flag(nes.cpu.a == 0);
@@ -601,7 +602,7 @@ impl CPU {
       }
 
       Instruction::SAX(addr) => {
-        CPU::set_operand(&addr, nes.cpu.a & nes.cpu.x, nes);
+        CPU::set_operand(addr, nes.cpu.a & nes.cpu.x, nes);
       }
 
       Instruction::SBC(op) => {
@@ -646,15 +647,15 @@ impl CPU {
       }
 
       Instruction::STA(addr) => {
-        CPU::set_operand(&addr, nes.cpu.a, nes);
+        CPU::set_operand(addr, nes.cpu.a, nes);
       }
 
       Instruction::STX(addr) => {
-        CPU::set_operand(&addr, nes.cpu.x, nes);
+        CPU::set_operand(addr, nes.cpu.x, nes);
       }
 
       Instruction::STY(addr) => {
-        CPU::set_operand(&addr, nes.cpu.y, nes);
+        CPU::set_operand(addr, nes.cpu.y, nes);
       }
 
       Instruction::TAX => {

@@ -64,8 +64,8 @@ impl INESRom {
       .read_to_end(&mut chr_buf)?;
 
     Ok(Self {
-      chr_data: chr_buf.into(),
-      prg_data: prg_buf.into(),
+      chr_data: chr_buf,
+      prg_data: prg_buf,
       trainer_data,
       has_battery_ram,
       vertical_mirroring,

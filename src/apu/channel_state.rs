@@ -25,8 +25,8 @@ impl APUState {
       .pulse1
       .commands(time_since_start)
       .into_iter()
-      .chain(self.pulse2.commands(time_since_start).into_iter())
-      .chain(self.triangle.commands(time_since_start).into_iter())
+      .chain(self.pulse2.commands(time_since_start))
+      .chain(self.triangle.commands(time_since_start))
       .collect()
   }
 
@@ -42,14 +42,12 @@ impl APUState {
       .chain(
         self
           .pulse2
-          .diff_commands(&other.pulse2, time_since_start)
-          .into_iter(),
+          .diff_commands(&other.pulse2, time_since_start),
       )
       .chain(
         self
           .triangle
-          .diff_commands(&other.triangle, time_since_start)
-          .into_iter(),
+          .diff_commands(&other.triangle, time_since_start),
       )
       .collect()
   }

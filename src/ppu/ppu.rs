@@ -13,6 +13,7 @@ pub enum PPUAddressLatch {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct PPU {
   pub cycle: i32,
   pub scanline: i32,

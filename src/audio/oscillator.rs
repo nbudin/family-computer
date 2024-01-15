@@ -46,9 +46,9 @@ impl AudioChannel for Oscillator {
 
     match command.as_ref() {
       OscillatorCommand::SetWaveform(waveform) => self.set_waveform(waveform.clone()),
-      OscillatorCommand::SetFrequency(frequency) => self.set_frequency(frequency.clone()),
-      OscillatorCommand::SetAmplitude(amplitude) => self.set_amplitude(amplitude.clone()),
-      OscillatorCommand::SetDutyCycle(duty_cycle) => self.set_duty_cycle(duty_cycle.clone()),
+      OscillatorCommand::SetFrequency(frequency) => self.set_frequency(*frequency),
+      OscillatorCommand::SetAmplitude(amplitude) => self.set_amplitude(*amplitude),
+      OscillatorCommand::SetDutyCycle(duty_cycle) => self.set_duty_cycle(*duty_cycle),
     }
   }
 }

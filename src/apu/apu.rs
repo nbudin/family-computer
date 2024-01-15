@@ -20,6 +20,12 @@ pub struct APU {
   prev_state: Option<APUState>,
 }
 
+impl Default for APU {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APU {
   pub fn new() -> Self {
     Self {

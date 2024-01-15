@@ -13,6 +13,12 @@ pub struct APUSynth {
   synth: Synth<APUSynthChannel>,
 }
 
+impl Default for APUSynth {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APUSynth {
   pub fn new() -> Self {
     Self {

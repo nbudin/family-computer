@@ -5,6 +5,12 @@ pub struct APULengthCounter {
   pub halt: bool,
 }
 
+impl Default for APULengthCounter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APULengthCounter {
   pub fn new() -> Self {
     Self {
@@ -17,10 +23,8 @@ impl APULengthCounter {
   pub fn tick(&mut self) -> u8 {
     if !self.enable {
       self.counter = 0;
-    } else {
-      if self.counter > 0 && !self.halt {
-        self.counter -= 1;
-      }
+    } else if self.counter > 0 && !self.halt {
+      self.counter -= 1;
     }
 
     self.counter

@@ -9,6 +9,12 @@ pub struct APUEnvelope {
   pub output: u16,
 }
 
+impl Default for APUEnvelope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APUEnvelope {
   pub fn new() -> Self {
     Self {

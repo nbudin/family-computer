@@ -45,17 +45,13 @@ impl PPU {
     } else if fg_pixel == 0 {
       (bg_pixel, bg_palette)
     } else {
-      if sprite0 {
-        if nes.ppu.mask.render_background() && nes.ppu.mask.render_sprites() {
-          if !(nes.ppu.mask.render_background_left() || nes.ppu.mask.render_sprites_left()) {
-            if nes.ppu.cycle >= 9 && nes.ppu.cycle < 258 {
-              nes.ppu.status.set_sprite_zero_hit(true);
-            }
-          } else {
-            if nes.ppu.cycle >= 1 && nes.ppu.cycle < 258 {
-              nes.ppu.status.set_sprite_zero_hit(true);
-            }
+      if sprite0 && nes.ppu.mask.render_background() && nes.ppu.mask.render_sprites() {
+        if !(nes.ppu.mask.render_background_left() || nes.ppu.mask.render_sprites_left()) {
+          if nes.ppu.cycle >= 9 && nes.ppu.cycle < 258 {
+            nes.ppu.status.set_sprite_zero_hit(true);
           }
+        } else if nes.ppu.cycle >= 1 && nes.ppu.cycle < 258 {
+          nes.ppu.status.set_sprite_zero_hit(true);
         }
       }
 

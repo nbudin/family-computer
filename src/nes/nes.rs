@@ -36,6 +36,7 @@ pub trait DisassemblyWriter: Write + Debug + Any {
 
 impl<T: Write + Debug + Any> DisassemblyWriter for T {}
 
+#[allow(clippy::upper_case_acronyms)]
 pub struct NES {
   pub work_ram: WorkRAM,
   pub cartridge: BoxCartridge,
@@ -131,14 +132,12 @@ impl NES {
           if self.ppu_cycle_count % 2 == 1 {
             self.dma.dummy = false;
           }
+        } else if self.ppu_cycle_count % 2 == 0 {
+          let addr = self.dma.ram_addr();
+          let value = self.cpu_bus_mut().as_mut().read(addr);
+          self.dma.store_data(value);
         } else {
-          if self.ppu_cycle_count % 2 == 0 {
-            let addr = self.dma.ram_addr();
-            let value = self.cpu_bus_mut().as_mut().read(addr);
-            self.dma.store_data(value);
-          } else {
-            self.dma.write_to_ppu(&mut self.ppu.oam);
-          }
+          self.dma.write_to_ppu(&mut self.ppu.oam);
         }
       } else {
         self.log_last_executed_instruction();
@@ -176,7 +175,7 @@ impl NES {
 
   pub fn cpu_bus<'a>(&'a self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     let ppu_memory = PPUMemory {
-      mask: self.ppu.mask.clone(),
+      mask: self.ppu.mask,
       palette_ram: RwHandle::ReadOnly(&self.ppu.palette_ram),
       name_tables: RwHandle::ReadOnly(&self.ppu.name_tables),
       pattern_tables: RwHandle::ReadOnly(&self.ppu.pattern_tables),
@@ -215,7 +214,7 @@ impl NES {
     let mirroring = self.cartridge.get_mirroring();
 
     let ppu_memory = PPUMemory {
-      mask: self.ppu.mask.clone(),
+      mask: self.ppu.mask,
       palette_ram: RwHandle::ReadWrite(&mut self.ppu.palette_ram),
       name_tables: RwHandle::ReadWrite(&mut self.ppu.name_tables),
       pattern_tables: RwHandle::ReadWrite(&mut self.ppu.pattern_tables),
@@ -254,7 +253,7 @@ impl NES {
 
   pub fn ppu_memory<'a>(&'a self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     let bus = PPUMemory {
-      mask: self.ppu.mask.clone(),
+      mask: self.ppu.mask,
       palette_ram: RwHandle::ReadOnly(&self.ppu.palette_ram),
       name_tables: RwHandle::ReadOnly(&self.ppu.name_tables),
       pattern_tables: RwHandle::ReadOnly(&self.ppu.pattern_tables),
@@ -265,7 +264,7 @@ impl NES {
 
   pub fn ppu_memory_mut<'a>(&'a mut self) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     let bus = PPUMemory {
-      mask: self.ppu.mask.clone(),
+      mask: self.ppu.mask,
       palette_ram: RwHandle::ReadWrite(&mut self.ppu.palette_ram),
       name_tables: RwHandle::ReadWrite(&mut self.ppu.name_tables),
       pattern_tables: RwHandle::ReadWrite(&mut self.ppu.pattern_tables),

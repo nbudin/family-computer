@@ -64,14 +64,14 @@ pub struct Emulator {
 
 impl Emulator {
   pub fn new(nes: NES, pixbuf: Arc<RwLock<Pixbuf>>) -> Self {
-    let emulator = Self {
+    
+    Self {
       nes,
       state: EmulatorState::Run,
       last_tick: Instant::now(),
       last_tick_duration: Duration::default(),
       pixbuf,
-    };
-    emulator
+    }
   }
 
   fn get_machine_state(&self) -> MachineState {

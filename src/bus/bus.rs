@@ -9,7 +9,7 @@ pub trait Bus<AddrType: Clone> {
   }
 
   fn read(&mut self, addr: AddrType) -> u8 {
-    let result = Self::try_read_readonly(&self, addr.clone());
+    let result = Self::try_read_readonly(self, addr.clone());
     Self::read_side_effects(self, addr);
     result.unwrap_or(0)
   }

@@ -97,6 +97,7 @@ impl<'a> BusInterceptor<'a, u16> for CNROMPPUMemoryInterceptor<'a> {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct CNROM {
   pub prg_rom: [u8; 32 * 1024],
   pub state: Arc<RwLock<CNROMState>>,
@@ -132,7 +133,7 @@ impl Cartridge for CNROM {
 
   fn cpu_bus_interceptor<'a>(&'a self, bus: CPUBus<'a>) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     Box::new(CNROMCPUBusInterceptor {
-      cartridge: &self,
+      cartridge: self,
       bus,
     })
   }
@@ -142,7 +143,7 @@ impl Cartridge for CNROM {
     bus: CPUBus<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     Box::new(CNROMCPUBusInterceptor {
-      cartridge: &self,
+      cartridge: self,
       bus,
     })
   }
@@ -152,7 +153,7 @@ impl Cartridge for CNROM {
     bus: PPUMemory<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     Box::new(CNROMPPUMemoryInterceptor {
-      cartridge: &self,
+      cartridge: self,
       bus,
     })
   }
@@ -162,7 +163,7 @@ impl Cartridge for CNROM {
     bus: PPUMemory<'a>,
   ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
     Box::new(CNROMPPUMemoryInterceptor {
-      cartridge: &self,
+      cartridge: self,
       bus,
     })
   }

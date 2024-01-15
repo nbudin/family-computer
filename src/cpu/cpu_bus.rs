@@ -54,8 +54,7 @@ impl Bus<u16> for CPUBus<'_> {
       controller.read_side_effects(())
     } else if addr < 0x4020 {
       // TODO: CPU test mode
-    } else {
-    }
+    } 
   }
 
   fn write(&mut self, addr: u16, value: u8) {
@@ -81,7 +80,7 @@ impl Bus<u16> for CPUBus<'_> {
       controller.poll();
     } else if addr < 0x4020 {
       // TODO: CPU test mode
-      ()
+      
     }
   }
 }

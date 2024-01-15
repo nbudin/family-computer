@@ -26,7 +26,7 @@ mod tests {
   impl StringWriter {
     pub fn new() -> Self {
       StringWriter {
-        bytes: Arc::new(RwLock::new(Vec::with_capacity(1 * 1024 * 1024))),
+        bytes: Arc::new(RwLock::new(Vec::with_capacity(1024 * 1024))),
       }
     }
 
@@ -73,7 +73,7 @@ mod tests {
     let disasm: String = disasm_writer.into_string();
 
     for (line_index, (disasm_line, expected_line)) in disasm
-      .split("\n")
+      .split('\n')
       .zip(expected_log.split("\r\n"))
       .enumerate()
     {
@@ -88,7 +88,7 @@ mod tests {
     }
 
     assert_eq!(
-      disasm.split("\n").count(),
+      disasm.split('\n').count(),
       8980,
       "Number of lines in disassembly log did not match"
     );

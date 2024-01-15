@@ -90,6 +90,12 @@ pub struct APUPulseChannel {
   pub length_counter: APULengthCounter,
 }
 
+impl Default for APUPulseChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APUPulseChannel {
   pub fn new() -> Self {
     Self {

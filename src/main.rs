@@ -23,7 +23,7 @@ pub fn main() -> Result<(), iced::Error> {
     env::set_var("SMOL_THREADS", "4");
   }
 
-  let args = env::args().into_iter().collect::<Vec<_>>();
+  let args = env::args().collect::<Vec<_>>();
   let rom_path = match args
     .get(1)
     .map(|arg| PathBuf::from_str(arg.as_str()).unwrap())

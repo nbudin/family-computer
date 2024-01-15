@@ -121,10 +121,7 @@ impl Instruction {
   pub fn disassemble(&self, nes: &NES) -> DisassembledInstruction {
     let eval = match &self {
       Instruction::JSR(_) => false,
-      Instruction::JMP(op) => match op {
-        &Operand::Indirect(_) => true,
-        _ => false,
-      },
+      Instruction::JMP(op) => matches!(op, &Operand::Indirect(_)),
       _ => self.operand().is_some(),
     };
 

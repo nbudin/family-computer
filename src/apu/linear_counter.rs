@@ -6,6 +6,12 @@ pub struct APULinearCounter {
   pub control_flag: bool,
 }
 
+impl Default for APULinearCounter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APULinearCounter {
   pub fn new() -> Self {
     Self {

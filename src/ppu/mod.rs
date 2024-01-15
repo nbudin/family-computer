@@ -27,7 +27,7 @@ mod tests {
   use super::Pixbuf;
 
   fn run_blargg_ppu_test(rom_data: &[u8]) -> u8 {
-    let rom = INESRom::from_reader(&mut BufReader::new(&rom_data[..])).unwrap();
+    let rom = INESRom::from_reader(&mut BufReader::new(rom_data)).unwrap();
     let (sender, _receiver) = smol::channel::unbounded();
     let mut machine = NES::from_rom(rom, sender);
     let mut fake_pixbuf = Pixbuf::new();

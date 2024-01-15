@@ -6,6 +6,12 @@ pub struct APUSequencer {
   pub output: u8,
 }
 
+impl Default for APUSequencer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl APUSequencer {
   pub fn new() -> Self {
     APUSequencer {
