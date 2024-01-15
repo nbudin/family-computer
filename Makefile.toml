@@ -69,6 +69,7 @@ script = [
   "mkdir -p ${RELEASE_DIR}/Family\\ Computer.app/Contents/Resources",
   "mv ${RELEASE_DIR}/Info.plist ${RELEASE_DIR}/Family\\ Computer.app/Contents/",
   "mv ${RELEASE_DIR}/family-computer ${RELEASE_DIR}/Family\\ Computer.app/Contents/MacOS/",
+  "strip ${RELEASE_DIR}/Family\\ Computer.app/Contents/MacOS/family-computer",
   "mv ${RELEASE_DIR}/Family\\ Computer.icns ${RELEASE_DIR}/Family\\ Computer.app/Contents/Resources/",
   "codesign -s 'Developer ID Application: Nathaniel Budin (V2W3RME3KS)' --options runtime ${RELEASE_DIR}/Family\\ Computer.app/",
 ]

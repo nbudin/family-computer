@@ -23,6 +23,7 @@ similar-asserts = "1.5.0"
 
 [profile.release]
 # lto = true
+debug = true
 
 [package.metadata.bundle]
 identifier = "com.natbudin.family-computer"
