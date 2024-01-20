@@ -33,13 +33,13 @@ impl DisassemblyMachineState {
       scanline: ppu.scanline,
       cycle: ppu.cycle,
       cycle_count: cpu_cycle_count,
-      vram_addr: ppu.vram_addr.into(),
-      tram_addr: ppu.tram_addr.into(),
+      vram_addr: (*cpu_bus.ppu_cpu_bus().vram_addr()).into(),
+      tram_addr: (*cpu_bus.ppu_cpu_bus().tram_addr()).into(),
       ppu2002: cpu_bus.read_readonly(0x2002),
       ppu2004: cpu_bus.read_readonly(0x2004),
       ppu2007: cpu_bus.read_readonly(0x2007),
-      fine_x: ppu.fine_x,
-      ppu_address_latch: ppu.address_latch,
+      fine_x: cpu_bus.ppu_cpu_bus().fine_x(),
+      ppu_address_latch: cpu_bus.ppu_cpu_bus().address_latch(),
     }
   }
 }

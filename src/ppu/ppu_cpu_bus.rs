@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use crate::bus::Bus;
 
 use super::{
-  PPUAddressLatch, PPUControlRegister, PPULoopyRegister, PPUMemory, PPUOAMEntry, PPURegister,
-  PPUStatusRegister,
+  PPUAddressLatch, PPUControlRegister, PPULoopyRegister, PPUMemory, PPUMemoryTrait, PPUOAMEntry,
+  PPURegister, PPUStatusRegister,
 };
 use crate::cartridge::bus_interceptor::BusInterceptor;
 
@@ -20,6 +20,23 @@ pub struct PPUCPUBus<I: BusInterceptor<u16, BusType = PPUMemory> + ?Sized> {
   pub address_latch: PPUAddressLatch,
   pub status_register_read_this_tick: bool,
   pub ppu_memory: Box<I>,
+}
+
+pub trait PPUCPUBusTrait {
+  fn get_status_register_read_this_tick(&self) -> bool;
+  fn set_status_register_read_this_tick(&mut self, value: bool);
+
+  fn fine_x(&self) -> u8;
+  fn vram_addr(&self) -> &PPULoopyRegister;
+  fn tram_addr(&self) -> &PPULoopyRegister;
+  fn address_latch(&self) -> PPUAddressLatch;
+
+  fn ppu_memory_mut<'a>(&'a mut self) -> &'a mut (dyn PPUMemoryTrait + 'a);
+  fn status_mut(&mut self) -> &mut PPUStatusRegister;
+  fn control_mut(&mut self) -> &mut PPUControlRegister;
+  fn vram_addr_mut(&mut self) -> &mut PPULoopyRegister;
+  fn tram_addr_mut(&mut self) -> &mut PPULoopyRegister;
+  fn oam_mut(&mut self) -> &mut [PPUOAMEntry; 64];
 }
 
 impl<I: BusInterceptor<u16, BusType = PPUMemory>> Debug for PPUCPUBus<I> {
@@ -74,6 +91,56 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory>> PPUCPUBus<I> {
       status_register_read_this_tick: false,
       ppu_memory,
     }
+  }
+}
+
+impl<I: BusInterceptor<u16, BusType = PPUMemory>> PPUCPUBusTrait for PPUCPUBus<I> {
+  fn get_status_register_read_this_tick(&self) -> bool {
+    self.status_register_read_this_tick
+  }
+
+  fn set_status_register_read_this_tick(&mut self, value: bool) {
+    self.status_register_read_this_tick = value;
+  }
+
+  fn address_latch(&self) -> PPUAddressLatch {
+    self.address_latch
+  }
+
+  fn ppu_memory_mut(&mut self) -> &mut dyn PPUMemoryTrait {
+    self.ppu_memory.get_inner_mut()
+  }
+
+  fn control_mut(&mut self) -> &mut PPUControlRegister {
+    &mut self.control
+  }
+
+  fn status_mut(&mut self) -> &mut PPUStatusRegister {
+    &mut self.status
+  }
+
+  fn vram_addr(&self) -> &PPULoopyRegister {
+    &self.vram_addr
+  }
+
+  fn vram_addr_mut(&mut self) -> &mut PPULoopyRegister {
+    &mut self.vram_addr
+  }
+
+  fn tram_addr(&self) -> &PPULoopyRegister {
+    &self.tram_addr
+  }
+
+  fn tram_addr_mut(&mut self) -> &mut PPULoopyRegister {
+    &mut self.tram_addr
+  }
+
+  fn oam_mut(&mut self) -> &mut [PPUOAMEntry; 64] {
+    &mut self.oam
+  }
+
+  fn fine_x(&self) -> u8 {
+    self.fine_x
   }
 }
 

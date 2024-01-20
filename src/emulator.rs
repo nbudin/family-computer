@@ -79,8 +79,8 @@ impl Emulator {
     MachineState {
       emulator_state: self.state,
       cpu: self.nes.state.cpu.clone(),
-      vram_addr: self.nes.state.ppu.vram_addr,
-      tram_addr: self.nes.state.ppu.tram_addr,
+      vram_addr: *self.nes.state.cartridge.ppu_cpu_bus().vram_addr(),
+      tram_addr: *self.nes.state.cartridge.ppu_cpu_bus().tram_addr(),
       scanline: self.nes.state.ppu.scanline,
       cycle: self.nes.state.ppu.cycle,
       mem2002: cpu_bus.read_readonly(0x2002),

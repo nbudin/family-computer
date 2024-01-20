@@ -1,9 +1,7 @@
 use bitfield_struct::bitfield;
 use bytemuck::{Pod, Zeroable};
 
-use crate::bus::Bus;
-
-use super::PPU;
+use super::{PPUCPUBusTrait, PPU};
 
 #[bitfield(u32)]
 #[derive(Pod, Zeroable)]
@@ -44,13 +42,15 @@ pub fn flip_byte(b: u8) -> u8 {
 impl PPU {
   pub fn get_current_pixel_fg_color_palette_priority_and_sprite0(
     &self,
+    ppu_cpu_bus: &mut dyn PPUCPUBusTrait,
   ) -> (u8, u8, SpritePriority, bool) {
     let mut fg_pixel: u8 = 0;
     let mut fg_palette: u8 = 0;
     let mut priority: SpritePriority = SpritePriority::Background;
     let mut sprite0 = false;
+    let mask = ppu_cpu_bus.ppu_memory_mut().mask();
 
-    if self.mask.render_sprites() {
+    if mask.render_sprites() {
       for sprite_index in 0..self.sprite_scanline.len() {
         let sprite = &self.sprite_scanline[sprite_index];
 
@@ -80,12 +80,13 @@ impl PPU {
     (fg_pixel, fg_palette, priority, sprite0)
   }
 
-  pub fn evaluate_scanline_sprites(&mut self) {
+  pub fn evaluate_scanline_sprites(&mut self, ppu_cpu_bus: &mut dyn PPUCPUBusTrait) {
     self.sprite_scanline.truncate(0);
 
-    for (oam_index, entry) in self.oam.iter().enumerate() {
+    let sprite_height = ppu_cpu_bus.control_mut().sprite_height() as i32;
+    for (oam_index, entry) in ppu_cpu_bus.oam_mut().iter().enumerate() {
       let diff = self.scanline - entry.y() as i32;
-      if diff >= 0 && diff < self.control.sprite_height().into() {
+      if diff >= 0 && diff < sprite_height {
         self.sprite_scanline.push(ActiveSprite {
           oam_entry: *entry,
           oam_index,
@@ -97,8 +98,8 @@ impl PPU {
       }
     }
 
-    self
-      .status
+    ppu_cpu_bus
+      .status_mut()
       .set_sprite_overflow(self.sprite_scanline.len() > 8);
     self.sprite_scanline.truncate(8);
   }
@@ -106,14 +107,14 @@ impl PPU {
   pub fn load_sprite_data_for_next_scanline(
     &mut self,
     sprite_index: usize,
-    ppu_memory: &mut dyn Bus<u16>,
+    ppu_cpu_bus: &mut dyn PPUCPUBusTrait,
   ) {
     let sprite = self.sprite_scanline[sprite_index].clone();
 
-    let sprite_pattern_addr_low = if !self.control.sprite_size() {
+    let sprite_pattern_addr_low = if !ppu_cpu_bus.control_mut().sprite_size() {
       // 8x8 mode
-      let sprite_pattern_start_low =
-        ((self.control.pattern_sprite() as u16) << 12) | ((sprite.oam_entry.tile_id() as u16) << 4);
+      let sprite_pattern_start_low = ((ppu_cpu_bus.control_mut().pattern_sprite() as u16) << 12)
+        | ((sprite.oam_entry.tile_id() as u16) << 4);
 
       if !sprite.oam_entry.flip_vertical() {
         // sprite is not vertically flipped
@@ -152,8 +153,8 @@ impl PPU {
     };
 
     let sprite_pattern_addr_high = sprite_pattern_addr_low + 8;
-    let mut sprite_pattern_bits_low = ppu_memory.read(sprite_pattern_addr_low);
-    let mut sprite_pattern_bits_high = ppu_memory.read(sprite_pattern_addr_high);
+    let mut sprite_pattern_bits_low = ppu_cpu_bus.ppu_memory_mut().read(sprite_pattern_addr_low);
+    let mut sprite_pattern_bits_high = ppu_cpu_bus.ppu_memory_mut().read(sprite_pattern_addr_high);
 
     if sprite.oam_entry.flip_horizontal() {
       sprite_pattern_bits_low = flip_byte(sprite_pattern_bits_low);

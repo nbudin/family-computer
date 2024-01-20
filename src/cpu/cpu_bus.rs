@@ -4,7 +4,7 @@ use crate::{
   bus::Bus,
   cartridge::bus_interceptor::BusInterceptor,
   nes::{Controller, ControllerButton, DMA},
-  ppu::{PPUCPUBus, PPUMemory, PPURegister},
+  ppu::{PPUCPUBus, PPUCPUBusTrait, PPUMemory, PPURegister},
 };
 
 pub trait CPUBusTrait: Bus<u16> {
@@ -20,6 +20,9 @@ pub trait CPUBusTrait: Bus<u16> {
     button: ControllerButton,
     pressed: bool,
   );
+
+  fn ppu_cpu_bus<'a>(&'a self) -> &'a (dyn PPUCPUBusTrait + 'a);
+  fn ppu_cpu_bus_mut<'a>(&'a mut self) -> &'a mut (dyn PPUCPUBusTrait + 'a);
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +84,14 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> CPUBusTrait for CPUBus
   ) {
     self.controllers[controller_index].set_button_state(button, pressed)
   }
+
+  fn ppu_cpu_bus(&self) -> &dyn PPUCPUBusTrait {
+    self.ppu_cpu_bus.as_ref()
+  }
+
+  fn ppu_cpu_bus_mut(&mut self) -> &mut dyn PPUCPUBusTrait {
+    self.ppu_cpu_bus.as_mut()
+  }
 }
 
 impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> Bus<u16> for CPUBus<I> {
@@ -127,8 +138,7 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> Bus<u16> for CPUBus<I>
   fn write(&mut self, addr: u16, value: u8) {
     if addr < 0x2000 {
       let actual_address = addr % 0x800;
-      let mut work_ram = self.work_ram;
-      work_ram[usize::from(actual_address)] = value;
+      self.work_ram[usize::from(actual_address)] = value;
     } else if addr < 0x4000 {
       self
         .ppu_cpu_bus

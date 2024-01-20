@@ -1,4 +1,4 @@
-use crate::{bus::Bus, cpu::CPUBusTrait};
+use crate::{bus::Bus, cpu::CPUBusTrait, ppu::PPUCPUBusTrait};
 
 pub enum InterceptorResult<T> {
   Intercepted(T),
@@ -42,7 +42,7 @@ impl<AddrType: Clone, I: BusInterceptor<AddrType> + ?Sized> Bus<AddrType> for I 
   }
 }
 
-impl<BusType: CPUBusTrait, I: BusInterceptor<u16, BusType = BusType>> CPUBusTrait for I {
+impl<BusType: CPUBusTrait + 'static, I: BusInterceptor<u16, BusType = BusType>> CPUBusTrait for I {
   fn maybe_tick_dma(&mut self, ppu_cycle_count: u64) -> bool {
     self.get_inner_mut().maybe_tick_dma(ppu_cycle_count)
   }
@@ -64,6 +64,14 @@ impl<BusType: CPUBusTrait, I: BusInterceptor<u16, BusType = BusType>> CPUBusTrai
     self
       .get_inner_mut()
       .set_controller_button_state(controller_index, button, pressed)
+  }
+
+  fn ppu_cpu_bus<'a>(&'a self) -> &'a (dyn PPUCPUBusTrait + 'a) {
+    self.get_inner().ppu_cpu_bus()
+  }
+
+  fn ppu_cpu_bus_mut(&mut self) -> &mut dyn PPUCPUBusTrait {
+    self.get_inner_mut().ppu_cpu_bus_mut()
   }
 }
 

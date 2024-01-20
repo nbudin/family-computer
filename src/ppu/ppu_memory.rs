@@ -19,6 +19,10 @@ where
   }
 }
 
+pub trait PPUMemoryTrait: Bus<u16> {
+  fn mask(&self) -> PPUMaskRegister;
+}
+
 #[derive(Debug, Clone)]
 pub struct PPUMemory {
   pub mask: PPUMaskRegister,
@@ -37,6 +41,12 @@ impl PPUMemory {
       pattern_tables: [[0; 4096]; 2],
       palette_ram: [0; 32],
     }
+  }
+}
+
+impl PPUMemoryTrait for PPUMemory {
+  fn mask(&self) -> PPUMaskRegister {
+    self.mask.clone()
   }
 }
 
@@ -107,11 +117,11 @@ impl Bus<u16> for PPUMemory {
       self.pattern_tables[(addr as usize & 0x1000) >> 12][addr as usize & 0x0fff] = value;
     } else if addr < 0x3f00 {
       let addr = addr & 0x0fff;
-      let mut name_tables = self.name_tables;
+      let name_tables = &mut self.name_tables;
 
       match self.mirroring {
         CartridgeMirroring::Horizontal => {
-          if addr < 0x0400 {
+          if addr < 0x0800 {
             name_tables[0][addr as usize & 0x03ff] = value;
           } else if addr < 0x0800 {
             name_tables[0][addr as usize & 0x03ff] = value;
@@ -156,7 +166,7 @@ impl Bus<u16> for PPUMemory {
         0x001c => 0x000c,
         _ => addr,
       };
-      let mut palette_ram = self.palette_ram;
+      let palette_ram = &mut self.palette_ram;
       palette_ram[addr as usize] = value;
     }
   }

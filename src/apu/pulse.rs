@@ -91,9 +91,9 @@ pub struct APUPulseChannel {
 }
 
 impl Default for APUPulseChannel {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl APUPulseChannel {
@@ -137,12 +137,6 @@ impl APUPulseChannel {
     self.envelope.enabled = !value.constant_volume_envelope();
     self.envelope.volume = value.volume_envelope_divider_period() as u16;
     self.control = value;
-
-    // println!(
-    //   "sequence: {:08b} envelope: {:?}",
-    //   value.duty_cycle_sequence(),
-    //   self.envelope
-    // )
   }
 
   pub fn write_timer_byte(&mut self, value: u8, high_byte: bool) {

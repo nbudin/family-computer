@@ -2,10 +2,9 @@ use dyn_clone::DynClone;
 
 use self::{bus_interceptor::BusInterceptor, cnrom::CNROM, mmc1::MMC1, nrom::NROM, uxrom::UxROM};
 use crate::{
-  bus::Bus,
   cpu::{CPUBus, CPUBusTrait},
   nes::INESRom,
-  ppu::PPUMemory,
+  ppu::{PPUCPUBusTrait, PPUMemory},
 };
 use std::fmt::Debug;
 
@@ -92,22 +91,11 @@ impl Cartridge {
     }
   }
 
-  #[allow(unused)]
-  pub fn ppu_memory(&self) -> &dyn Bus<u16> {
-    match self {
-      Cartridge::NROM(mapper) => mapper.ppu_memory(),
-      Cartridge::MMC1(mapper) => mapper.ppu_memory(),
-      Cartridge::UxROM(mapper) => mapper.ppu_memory(),
-      Cartridge::CNROM(mapper) => mapper.ppu_memory(),
-    }
+  pub fn ppu_cpu_bus(&self) -> &dyn PPUCPUBusTrait {
+    self.cpu_bus().ppu_cpu_bus()
   }
 
-  pub fn ppu_memory_mut(&mut self) -> &mut dyn Bus<u16> {
-    match self {
-      Cartridge::NROM(mapper) => mapper.ppu_memory_mut(),
-      Cartridge::MMC1(mapper) => mapper.ppu_memory_mut(),
-      Cartridge::UxROM(mapper) => mapper.ppu_memory_mut(),
-      Cartridge::CNROM(mapper) => mapper.ppu_memory_mut(),
-    }
+  pub fn ppu_cpu_bus_mut(&mut self) -> &mut dyn PPUCPUBusTrait {
+    self.cpu_bus_mut().ppu_cpu_bus_mut()
   }
 }

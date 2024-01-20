@@ -111,7 +111,7 @@ impl NES {
     let nmi_set = self
       .state
       .ppu
-      .tick(pixbuf, self.state.cartridge.ppu_memory_mut());
+      .tick(pixbuf, self.state.cartridge.ppu_cpu_bus_mut());
     self.state.ppu_cycle_count += 1;
 
     if nmi_set {
