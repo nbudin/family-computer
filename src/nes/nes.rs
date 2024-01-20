@@ -6,20 +6,14 @@ use std::{
 };
 
 use crate::{
-  apu::{APUSynth, APU},
+  apu::APUSynth,
   audio::stream_setup::StreamSpawner,
-  bus::Bus,
   cartridge::Cartridge,
   cpu::{DisassemblyMachineState, ExecutedInstruction, CPU},
   ppu::{Pixbuf, PPU},
 };
 
 use super::INESRom;
-
-pub type WorkRAM = [u8; 2048];
-pub type PaletteRAM = [u8; 32];
-pub type NameTables = [[u8; 1024]; 2];
-pub type PatternTables = [[u8; 4096]; 2];
 
 pub trait DisassemblyWriter: Write + Debug + Any {
   fn as_any(&self) -> &dyn Any

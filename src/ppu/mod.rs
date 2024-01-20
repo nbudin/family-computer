@@ -19,10 +19,7 @@ pub use sprites::*;
 mod tests {
   use std::io::BufReader;
 
-  use crate::{
-    bus::Bus,
-    nes::{INESRom, NES},
-  };
+  use crate::nes::{INESRom, NES};
 
   use super::Pixbuf;
 

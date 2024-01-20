@@ -167,7 +167,7 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
   }
 }
 
-fn process_frame<'a, SampleType>(
+fn process_frame<SampleType>(
   output: &mut [SampleType],
   mut channels: Vec<&mut Box<dyn AudioChannel>>,
   num_channels: usize,

@@ -1,5 +1,3 @@
-use crate::bus::Bus;
-
 use super::{CPUBusTrait, CPU};
 
 #[derive(Debug, Clone)]

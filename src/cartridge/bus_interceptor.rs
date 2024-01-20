@@ -1,8 +1,3 @@
-use std::{
-  marker::PhantomData,
-  ops::{Deref, DerefMut},
-};
-
 use crate::{bus::Bus, cpu::CPUBusTrait};
 
 pub enum InterceptorResult<T> {
@@ -47,43 +42,6 @@ impl<AddrType: Clone, I: BusInterceptor<AddrType> + ?Sized> Bus<AddrType> for I 
   }
 }
 
-#[derive(Debug, Clone)]
-pub struct PassthroughBusInterceptor<AddrType: Clone, BusType: Bus<AddrType>> {
-  bus: BusType,
-  _phantom: PhantomData<AddrType>,
-}
-
-impl<AddrType: Clone, BusType: Bus<AddrType>> PassthroughBusInterceptor<AddrType, BusType> {
-  pub fn new(bus: BusType) -> Self {
-    Self {
-      bus,
-      _phantom: Default::default(),
-    }
-  }
-}
-
-impl<AddrType: Clone + Send + Sync, BusType: Bus<AddrType> + Clone> BusInterceptor<AddrType>
-  for PassthroughBusInterceptor<AddrType, BusType>
-{
-  type BusType = BusType;
-
-  fn get_inner(&self) -> &BusType {
-    &self.bus
-  }
-
-  fn get_inner_mut(&mut self) -> &mut BusType {
-    &mut self.bus
-  }
-
-  fn intercept_read_readonly(&self, _addr: AddrType) -> InterceptorResult<Option<u8>> {
-    InterceptorResult::NotIntercepted
-  }
-
-  fn intercept_write(&mut self, _addr: AddrType, _value: u8) -> InterceptorResult<()> {
-    InterceptorResult::NotIntercepted
-  }
-}
-
 impl<BusType: CPUBusTrait, I: BusInterceptor<u16, BusType = BusType>> CPUBusTrait for I {
   fn maybe_tick_dma(&mut self, ppu_cycle_count: u64) -> bool {
     self.get_inner_mut().maybe_tick_dma(ppu_cycle_count)
@@ -108,35 +66,6 @@ impl<BusType: CPUBusTrait, I: BusInterceptor<u16, BusType = BusType>> CPUBusTrai
       .set_controller_button_state(controller_index, button, pressed)
   }
 }
-
-// impl<
-//     AddrType: Clone + Send + Sync,
-//     I: BusInterceptor<AddrType> + ?Sized,
-//     T: Deref<Target = I> + DerefMut<Target = I> + Send + Sync + ?Sized,
-//   > BusInterceptor<AddrType> for T
-// {
-//   type BusType = I::BusType;
-
-//   fn get_inner(&self) -> &Self::BusType {
-//     self.deref().get_inner()
-//   }
-
-//   fn get_inner_mut(&mut self) -> &mut Self::BusType {
-//     self.deref_mut().get_inner_mut()
-//   }
-
-//   fn intercept_read_readonly(&self, addr: AddrType) -> InterceptorResult<Option<u8>> {
-//     self.deref().intercept_read_readonly(addr)
-//   }
-
-//   fn intercept_read_side_effects(&mut self, addr: AddrType) -> InterceptorResult<()> {
-//     self.deref_mut().intercept_read_side_effects(addr)
-//   }
-
-//   fn intercept_write(&mut self, addr: AddrType, value: u8) -> InterceptorResult<()> {
-//     self.deref_mut().intercept_write(addr, value)
-//   }
-// }
 
 #[cfg(test)]
 mod tests {

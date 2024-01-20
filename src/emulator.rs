@@ -12,7 +12,6 @@ use strum::IntoStaticStr;
 use crate::{
   apu::APUSynthChannel,
   audio::synth::SynthCommand,
-  bus::Bus,
   cpu::CPU,
   nes::{ControllerButton, INESRom, NES},
   ppu::{PPULoopyRegister, Pixbuf},

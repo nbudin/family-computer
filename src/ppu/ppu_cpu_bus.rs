@@ -44,16 +44,16 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory>> Debug for PPUCPUBus<I> {
 impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> Clone for PPUCPUBus<I> {
   fn clone(&self) -> Self {
     Self {
-      status: self.status.clone(),
-      control: self.control.clone(),
-      data_buffer: self.data_buffer.clone(),
-      oam: self.oam.clone(),
-      oam_addr: self.oam_addr.clone(),
-      vram_addr: self.vram_addr.clone(),
-      tram_addr: self.tram_addr.clone(),
-      fine_x: self.fine_x.clone(),
-      address_latch: self.address_latch.clone(),
-      status_register_read_this_tick: self.status_register_read_this_tick.clone(),
+      status: self.status,
+      control: self.control,
+      data_buffer: self.data_buffer,
+      oam: self.oam,
+      oam_addr: self.oam_addr,
+      vram_addr: self.vram_addr,
+      tram_addr: self.tram_addr,
+      fine_x: self.fine_x,
+      address_latch: self.address_latch,
+      status_register_read_this_tick: self.status_register_read_this_tick,
       ppu_memory: dyn_clone::clone_box(self.ppu_memory.as_ref()),
     }
   }

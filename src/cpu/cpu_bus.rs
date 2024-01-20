@@ -41,10 +41,6 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> CPUBus<I> {
       apu: APU::new(),
     }
   }
-
-  pub fn ppu_memory_mut(&mut self) -> &mut I {
-    &mut self.ppu_cpu_bus.ppu_memory
-  }
 }
 
 impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> CPUBusTrait for CPUBus<I> {

@@ -119,33 +119,6 @@ impl MMC1ShiftRegister {
 }
 
 #[derive(Debug, Clone)]
-pub struct MMC1State {
-  pub chr_mem: Vec<u8>,
-  pub control: MMC1ControlRegister,
-  pub prg_bank_select: u8,
-  pub chr_low_bank_select: u8,
-  pub chr_high_bank_select: u8,
-  pub prg_ram_bank_select: u8,
-  pub prg_ram: [u8; 32 * 1024],
-  pub shift_register: MMC1ShiftRegister,
-}
-
-impl MMC1State {
-  fn new(chr_data: Vec<u8>) -> Self {
-    Self {
-      chr_mem: chr_data,
-      control: MMC1ControlRegister(0).with_prg_rom_bank_mode(MMC1PRGROMBankMode::FixedHigh),
-      prg_bank_select: 0,
-      chr_low_bank_select: 0,
-      chr_high_bank_select: 0,
-      prg_ram_bank_select: 0,
-      prg_ram: [0; 32 * 1024],
-      shift_register: MMC1ShiftRegister::new(),
-    }
-  }
-}
-
-#[derive(Debug, Clone)]
 pub struct MMC1CPUBusInterceptor {
   pub prg_rom: Vec<u8>,
   pub control: MMC1ControlRegister,

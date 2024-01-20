@@ -10,6 +10,7 @@ use super::{
 };
 
 #[derive(Debug, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct APU {
   pub pulse1: APUPulseChannel,
   pub pulse2: APUPulseChannel,
@@ -135,7 +136,7 @@ impl APU {
           ((sequence & 0x0001) << 7) | ((sequence & 0x00fe) >> 1)
         });
 
-      let new_state = APUState::capture(&apu);
+      let new_state = APUState::capture(apu);
       let time_since_start = Duration::from_secs_f32(cpu_cycle_count as f32 / NTSC_CPU_FREQUENCY);
 
       let commands = if let Some(prev_state) = &apu.prev_state {

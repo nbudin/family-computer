@@ -20,6 +20,7 @@ pub enum CartridgeMirroring {
   Horizontal,
   Vertical,
   SingleScreen,
+  #[allow(unused)]
   FourScreen,
 }
 
@@ -31,8 +32,8 @@ pub trait Mapper: Debug + DynClone {
   where
     Self: Sized;
 
-  fn cpu_bus<'a>(&'a self) -> &'a Self::CPUBusInterceptor;
-  fn cpu_bus_mut<'a>(&'a mut self) -> &'a mut Self::CPUBusInterceptor;
+  fn cpu_bus(&self) -> &Self::CPUBusInterceptor;
+  fn cpu_bus_mut(&mut self) -> &mut Self::CPUBusInterceptor;
 
   fn ppu_memory(&self) -> &Self::PPUMemoryInterceptor {
     self.cpu_bus().get_inner().ppu_cpu_bus.ppu_memory.as_ref()
@@ -54,19 +55,19 @@ macro_rules! memoizing_bus_getters {
 }
 
 pub enum Cartridge {
-  NROM(NROM),
-  MMC1(MMC1),
-  UxROM(UxROM),
-  CNROM(CNROM),
+  NROM(Box<NROM>),
+  MMC1(Box<MMC1>),
+  UxROM(Box<UxROM>),
+  CNROM(Box<CNROM>),
 }
 
 impl Cartridge {
   pub fn from_ines_rom(rom: INESRom) -> Self {
     match rom.mapper_id {
-      0 => Cartridge::NROM(NROM::from_ines_rom(rom)),
-      1 => Cartridge::MMC1(MMC1::from_ines_rom(rom)),
-      2 => Cartridge::UxROM(UxROM::from_ines_rom(rom)),
-      3 => Cartridge::CNROM(CNROM::from_ines_rom(rom)),
+      0 => Cartridge::NROM(Box::new(NROM::from_ines_rom(rom))),
+      1 => Cartridge::MMC1(Box::new(MMC1::from_ines_rom(rom))),
+      2 => Cartridge::UxROM(Box::new(UxROM::from_ines_rom(rom))),
+      3 => Cartridge::CNROM(Box::new(CNROM::from_ines_rom(rom))),
       _ => {
         panic!("Unsupported mapper: {}", rom.mapper_id);
       }
@@ -91,6 +92,7 @@ impl Cartridge {
     }
   }
 
+  #[allow(unused)]
   pub fn ppu_memory(&self) -> &dyn Bus<u16> {
     match self {
       Cartridge::NROM(mapper) => mapper.ppu_memory(),

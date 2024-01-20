@@ -2,8 +2,6 @@ use std::fmt::Debug;
 
 use bitfield_struct::bitfield;
 
-use crate::bus::Bus;
-
 use super::{CPUBusTrait, ExecutedInstruction, Instruction, Operand};
 
 #[bitfield(u8)]
@@ -60,7 +58,7 @@ impl CPU {
     match op {
       Operand::Accumulator => cpu.a = value,
       _ => {
-        let addr = op.get_addr(&cpu, cpu_bus).0;
+        let addr = op.get_addr(cpu, cpu_bus).0;
         cpu_bus.write(addr, value);
       }
     }
@@ -69,7 +67,7 @@ impl CPU {
   pub fn set_pc(addr: &Operand, cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) -> bool {
     match addr {
       Operand::Absolute(_) | Operand::Indirect(_) => {
-        cpu.pc = addr.get_addr(&cpu, cpu_bus).0;
+        cpu.pc = addr.get_addr(cpu, cpu_bus).0;
         false
       }
       Operand::Relative(offset) => {
@@ -182,7 +180,7 @@ impl CPU {
 
     let (instruction, opcode) = Instruction::load_instruction(cpu_bus, self);
     self.wait_cycles = instruction.base_cycles() - 1;
-    let disassembled_instruction = instruction.disassemble(cpu_bus, &self);
+    let disassembled_instruction = instruction.disassemble(cpu_bus, self);
     CPU::execute_instruction(&instruction, true, cpu_bus, self);
 
     Some(ExecutedInstruction {
@@ -200,7 +198,7 @@ impl CPU {
   ) {
     match &instruction {
       Instruction::ADC(op) => {
-        let (value, page_boundary_crossed) = op.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = op.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -216,7 +214,7 @@ impl CPU {
       }
 
       Instruction::AND(op) => {
-        let (value, page_boundary_crossed) = op.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = op.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -226,7 +224,7 @@ impl CPU {
       }
 
       Instruction::ASL(op) => {
-        let (value, _) = op.eval(&cpu, cpu_bus);
+        let (value, _) = op.eval(cpu, cpu_bus);
         let result = value << 1;
         CPU::set_operand(op, result, cpu_bus, cpu);
         cpu.p.set_carry_flag(value & 0b10000000 > 0);
@@ -262,7 +260,7 @@ impl CPU {
       }
 
       Instruction::BIT(addr) => {
-        let (value, _) = addr.eval(&cpu, cpu_bus);
+        let (value, _) = addr.eval(cpu, cpu_bus);
         cpu.p.set_zero_flag((value & cpu.a) == 0);
         cpu.p.set_overflow_flag((value & (1 << 6)) > 0);
         cpu.p.set_negative_flag((value & (1 << 7)) > 0);
@@ -345,7 +343,7 @@ impl CPU {
       }
 
       Instruction::CMP(ref op) => {
-        let (value, page_boundary_crossed) = op.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = op.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -357,7 +355,7 @@ impl CPU {
       }
 
       Instruction::CPX(op) => {
-        let (value, _) = op.eval(&cpu, cpu_bus);
+        let (value, _) = op.eval(cpu, cpu_bus);
         let x = cpu.x;
         cpu.p.set_carry_flag(x >= value);
         cpu.p.set_zero_flag(x == value);
@@ -367,7 +365,7 @@ impl CPU {
       }
 
       Instruction::CPY(op) => {
-        let (value, _) = op.eval(&cpu, cpu_bus);
+        let (value, _) = op.eval(cpu, cpu_bus);
         let y = cpu.y;
         cpu.p.set_carry_flag(y >= value);
         cpu.p.set_zero_flag(y == value);
@@ -382,7 +380,7 @@ impl CPU {
       }
 
       Instruction::DEC(op) => {
-        let value = op.eval(&cpu, cpu_bus).0.wrapping_sub(1);
+        let value = op.eval(cpu, cpu_bus).0.wrapping_sub(1);
         CPU::set_operand(op, value, cpu_bus, cpu);
         cpu.p.set_zero_flag(value == 0);
         cpu.p.set_negative_flag((value & 0b10000000) > 0);
@@ -405,7 +403,7 @@ impl CPU {
       }
 
       Instruction::EOR(op) => {
-        let (value, page_boundary_crossed) = op.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = op.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -416,7 +414,7 @@ impl CPU {
       }
 
       Instruction::INC(op) => {
-        let value = op.eval(&cpu, cpu_bus).0.wrapping_add(1);
+        let value = op.eval(cpu, cpu_bus).0.wrapping_add(1);
         CPU::set_operand(op, value, cpu_bus, cpu);
         cpu.p.set_zero_flag(value == 0);
         cpu.p.set_negative_flag((value & 0b10000000) > 0);
@@ -460,7 +458,7 @@ impl CPU {
       }
 
       Instruction::LDA(ref addr) => {
-        let (value, page_boundary_crossed) = addr.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = addr.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -470,7 +468,7 @@ impl CPU {
       }
 
       Instruction::LDX(addr) => {
-        let (value, page_boundary_crossed) = addr.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = addr.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -480,7 +478,7 @@ impl CPU {
       }
 
       Instruction::LDY(addr) => {
-        let (value, page_boundary_crossed) = addr.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = addr.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -490,7 +488,7 @@ impl CPU {
       }
 
       Instruction::LSR(op) => {
-        let (value, _) = op.eval(&cpu, cpu_bus);
+        let (value, _) = op.eval(cpu, cpu_bus);
         let result = value >> 1;
         CPU::set_operand(op, result, cpu_bus, cpu);
         cpu.p.set_carry_flag(value & 0b1 == 1);
@@ -501,7 +499,7 @@ impl CPU {
       Instruction::NOP => {}
 
       Instruction::ORA(op) => {
-        let (value, page_boundary_crossed) = op.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = op.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -546,7 +544,7 @@ impl CPU {
       }
 
       Instruction::ROL(op) => {
-        let (value, _) = op.eval(&cpu, cpu_bus);
+        let (value, _) = op.eval(cpu, cpu_bus);
         let result = value << 1 | (cpu.p.carry_flag() as u8);
         CPU::set_operand(op, result, cpu_bus, cpu);
         cpu.p.set_carry_flag(value & 0b10000000 > 0);
@@ -555,7 +553,7 @@ impl CPU {
       }
 
       Instruction::ROR(op) => {
-        let (value, _) = op.eval(&cpu, cpu_bus);
+        let (value, _) = op.eval(cpu, cpu_bus);
         let result = value >> 1 | ((cpu.p.carry_flag() as u8) << 7);
         CPU::set_operand(op, result, cpu_bus, cpu);
         cpu.p.set_carry_flag(value & 0b1 > 0);
@@ -591,7 +589,7 @@ impl CPU {
       }
 
       Instruction::SBC(op) => {
-        let (value, page_boundary_crossed) = op.eval(&cpu, cpu_bus);
+        let (value, page_boundary_crossed) = op.eval(cpu, cpu_bus);
         if page_boundary_crossed && add_page_boundary_cross_cycles {
           cpu.wait_cycles += 1;
         }
@@ -681,7 +679,7 @@ impl CPU {
         match **instruction {
           Instruction::NOP => match op {
             Some(op) => {
-              let (_addr, page_boundary_crossed) = op.eval(&cpu, cpu_bus);
+              let (_addr, page_boundary_crossed) = op.eval(cpu, cpu_bus);
               if page_boundary_crossed && add_page_boundary_cross_cycles {
                 cpu.wait_cycles += 1;
               }

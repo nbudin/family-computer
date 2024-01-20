@@ -1,9 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use crate::{
-  bus::Bus,
-  ppu::{PPUAddressLatch, PPU},
-};
+use crate::ppu::{PPUAddressLatch, PPU};
 
 use super::{CPUBusTrait, Instruction, Operand, CPU};
 

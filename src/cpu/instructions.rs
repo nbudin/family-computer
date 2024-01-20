@@ -1,7 +1,5 @@
 use strum::IntoStaticStr;
 
-use crate::bus::Bus;
-
 use super::{CPUBusTrait, Operand, CPU};
 
 #[derive(Debug, IntoStaticStr, Clone)]
