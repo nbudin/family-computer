@@ -1,14 +1,14 @@
-use std::sync::{Arc, RwLock};
-
 use bitfield_struct::bitfield;
 
 use crate::{
-  bus::{BusInterceptor, InterceptorResult},
   cpu::CPUBus,
-  ppu::PPUMemory,
+  ppu::{PPUCPUBus, PPUMemory},
 };
 
-use super::{Cartridge, CartridgeMirroring, CartridgeState};
+use super::{
+  bus_interceptor::{BusInterceptor, InterceptorResult},
+  CartridgeMirroring, Mapper,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -145,19 +145,25 @@ impl MMC1State {
   }
 }
 
-impl CartridgeState for MMC1State {}
-
-struct MMC1CPUBusInterceptor<'a> {
-  cartridge: &'a MMC1,
-  bus: CPUBus<'a>,
+#[derive(Debug, Clone)]
+pub struct MMC1CPUBusInterceptor {
+  pub prg_rom: Vec<u8>,
+  pub control: MMC1ControlRegister,
+  pub prg_bank_select: u8,
+  pub prg_ram_bank_select: u8,
+  pub prg_ram: [u8; 32 * 1024],
+  pub shift_register: MMC1ShiftRegister,
+  bus: CPUBus<MMC1PPUMemoryInterceptor>,
 }
 
-impl<'a> BusInterceptor<'a, u16> for MMC1CPUBusInterceptor<'a> {
-  fn bus(&self) -> &dyn crate::bus::Bus<u16> {
+impl BusInterceptor<u16> for MMC1CPUBusInterceptor {
+  type BusType = CPUBus<MMC1PPUMemoryInterceptor>;
+
+  fn get_inner(&self) -> &CPUBus<MMC1PPUMemoryInterceptor> {
     &self.bus
   }
 
-  fn bus_mut(&mut self) -> &mut dyn crate::bus::Bus<u16> {
+  fn get_inner_mut(&mut self) -> &mut CPUBus<MMC1PPUMemoryInterceptor> {
     &mut self.bus
   }
 
@@ -166,40 +172,33 @@ impl<'a> BusInterceptor<'a, u16> for MMC1CPUBusInterceptor<'a> {
       InterceptorResult::NotIntercepted
     } else if addr < 0x8000 {
       let offset = (addr - 0x6000) as usize;
-      let state = self.cartridge.state.read().unwrap();
 
-      let prg_ram_addr = (0x2000 * (state.prg_ram_bank_select as usize)) + offset;
-      InterceptorResult::Intercepted(Some(state.prg_ram[prg_ram_addr % state.prg_ram.len()]))
+      let prg_ram_addr = (0x2000 * (self.prg_ram_bank_select as usize)) + offset;
+      InterceptorResult::Intercepted(Some(self.prg_ram[prg_ram_addr % self.prg_ram.len()]))
     } else if addr < 0xc000 {
       let offset = (addr - 0x8000) as usize;
-      let state = self.cartridge.state.read().unwrap();
 
-      let prg_addr = match state.control.prg_rom_bank_mode() {
+      let prg_addr = match self.control.prg_rom_bank_mode() {
         MMC1PRGROMBankMode::Full32KB1 | MMC1PRGROMBankMode::Full32KB2 => {
-          (0x8000 * (state.prg_bank_select as usize)) + offset
+          (0x8000 * (self.prg_bank_select as usize)) + offset
         }
         MMC1PRGROMBankMode::FixedLow => offset,
-        MMC1PRGROMBankMode::FixedHigh => (0x4000 * (state.prg_bank_select as usize)) + offset,
+        MMC1PRGROMBankMode::FixedHigh => (0x4000 * (self.prg_bank_select as usize)) + offset,
       };
 
-      InterceptorResult::Intercepted(Some(
-        self.cartridge.prg_rom[prg_addr % self.cartridge.prg_rom.len()],
-      ))
+      InterceptorResult::Intercepted(Some(self.prg_rom[prg_addr % self.prg_rom.len()]))
     } else {
       let offset = (addr - 0xc000) as usize;
-      let state = self.cartridge.state.read().unwrap();
 
-      let prg_addr = match state.control.prg_rom_bank_mode() {
+      let prg_addr = match self.control.prg_rom_bank_mode() {
         MMC1PRGROMBankMode::Full32KB1 | MMC1PRGROMBankMode::Full32KB2 => {
-          (0x8000 * (state.prg_bank_select as usize)) + offset + 0x2000
+          (0x8000 * (self.prg_bank_select as usize)) + offset + 0x2000
         }
-        MMC1PRGROMBankMode::FixedLow => (0x4000 * (state.prg_bank_select as usize)) + offset,
-        MMC1PRGROMBankMode::FixedHigh => (self.cartridge.prg_rom.len() - 0x4000) + offset,
+        MMC1PRGROMBankMode::FixedLow => (0x4000 * (self.prg_bank_select as usize)) + offset,
+        MMC1PRGROMBankMode::FixedHigh => (self.prg_rom.len() - 0x4000) + offset,
       };
 
-      InterceptorResult::Intercepted(Some(
-        self.cartridge.prg_rom[prg_addr % self.cartridge.prg_rom.len()],
-      ))
+      InterceptorResult::Intercepted(Some(self.prg_rom[prg_addr % self.prg_rom.len()]))
     }
   }
 
@@ -208,34 +207,40 @@ impl<'a> BusInterceptor<'a, u16> for MMC1CPUBusInterceptor<'a> {
       InterceptorResult::NotIntercepted
     } else if addr < 0x8000 {
       let offset = (addr - 0x6000) as usize;
-      let mut state = self.cartridge.state.write().unwrap();
 
-      let prg_ram_addr = (0x2000 * (state.prg_ram_bank_select as usize)) + offset;
-      let prg_ram_size = state.prg_ram.len();
-      state.prg_ram[prg_ram_addr % prg_ram_size] = value;
+      let prg_ram_addr = (0x2000 * (self.prg_ram_bank_select as usize)) + offset;
+      let prg_ram_size = self.prg_ram.len();
+      self.prg_ram[prg_ram_addr % prg_ram_size] = value;
       InterceptorResult::Intercepted(())
     } else {
-      let mut state = self.cartridge.state.write().unwrap();
-
       if value & (1 << 7) > 0 {
-        state.shift_register.reset();
-        state
+        self.shift_register.reset();
+        self
           .control
           .set_prg_rom_bank_mode(MMC1PRGROMBankMode::FixedHigh);
       } else {
         // TODO: ignore consecutive-cycle writes?
-        let result = state.shift_register.write_bit(value & 0b1 == 1);
+        let result = self.shift_register.write_bit(value & 0b1 == 1);
 
         if let Some(data) = result {
           if addr < 0xa000 {
-            state.control = data.into();
+            self.control = data.into();
+            self.bus.ppu_cpu_bus.ppu_memory.control = self.control;
+            self.bus.ppu_cpu_bus.ppu_memory.get_inner_mut().mirroring =
+              match self.control.mirroring() {
+                MMC1MirroringMode::SingleScreenLow | MMC1MirroringMode::SingleScreenHigh => {
+                  CartridgeMirroring::SingleScreen
+                }
+                MMC1MirroringMode::Vertical => CartridgeMirroring::Vertical,
+                MMC1MirroringMode::Horizontal => CartridgeMirroring::Horizontal,
+              }
           } else if addr < 0xc000 {
-            state.chr_low_bank_select = data;
+            self.bus.ppu_cpu_bus.ppu_memory.chr_low_bank_select = data;
           } else if addr < 0xe000 {
-            state.chr_high_bank_select = data;
+            self.bus.ppu_cpu_bus.ppu_memory.chr_high_bank_select = data;
           } else {
             // TODO deal with high bit
-            state.prg_bank_select = data & 0b1111;
+            self.prg_bank_select = data & 0b1111;
           }
         }
       }
@@ -245,44 +250,48 @@ impl<'a> BusInterceptor<'a, u16> for MMC1CPUBusInterceptor<'a> {
   }
 }
 
-struct MMC1PPUMemoryInterceptor<'a> {
-  bus: PPUMemory<'a>,
-  cartridge: &'a MMC1,
+#[derive(Debug, Clone)]
+pub struct MMC1PPUMemoryInterceptor {
+  bus: PPUMemory,
+  pub control: MMC1ControlRegister,
+  pub chr_low_bank_select: u8,
+  pub chr_high_bank_select: u8,
+  pub chr_mem: Vec<u8>,
 }
 
-impl<'a> BusInterceptor<'a, u16> for MMC1PPUMemoryInterceptor<'a> {
-  fn bus(&self) -> &dyn crate::bus::Bus<u16> {
+impl BusInterceptor<u16> for MMC1PPUMemoryInterceptor {
+  type BusType = PPUMemory;
+
+  fn get_inner(&self) -> &PPUMemory {
     &self.bus
   }
 
-  fn bus_mut(&mut self) -> &mut dyn crate::bus::Bus<u16> {
+  fn get_inner_mut(&mut self) -> &mut PPUMemory {
     &mut self.bus
   }
 
   fn intercept_read_readonly(&self, addr: u16) -> InterceptorResult<Option<u8>> {
     if addr < 0x1000 {
       let offset = addr as usize;
-      let state = self.cartridge.state.read().unwrap();
 
-      let chr_addr = match state.control.chr_rom_bank_mode() {
-        MMC1CHRROMBankMode::Full8KB => (state.chr_low_bank_select as usize * 8 * 1024) + offset,
-        MMC1CHRROMBankMode::Split4KB => (state.chr_low_bank_select as usize * 4 * 1024) + offset,
+      let chr_addr = match self.control.chr_rom_bank_mode() {
+        MMC1CHRROMBankMode::Full8KB => (self.chr_low_bank_select as usize * 8 * 1024) + offset,
+        MMC1CHRROMBankMode::Split4KB => (self.chr_low_bank_select as usize * 4 * 1024) + offset,
       };
 
-      InterceptorResult::Intercepted(Some(state.chr_mem[chr_addr % state.chr_mem.len()]))
+      InterceptorResult::Intercepted(Some(self.chr_mem[chr_addr % self.chr_mem.len()]))
     } else if addr < 0x2000 {
       let offset = (addr - 0x1000) as usize;
-      let state = self.cartridge.state.read().unwrap();
 
-      let chr_addr = match state.control.chr_rom_bank_mode() {
+      let chr_addr = match self.control.chr_rom_bank_mode() {
         MMC1CHRROMBankMode::Full8KB => {
           // high bank select is ignored in 8kb mode
-          (state.chr_low_bank_select as usize * 8 * 1024) + offset + 0x1000
+          (self.chr_low_bank_select as usize * 8 * 1024) + offset + 0x1000
         }
-        MMC1CHRROMBankMode::Split4KB => (state.chr_high_bank_select as usize * 4 * 1024) + offset,
+        MMC1CHRROMBankMode::Split4KB => (self.chr_high_bank_select as usize * 4 * 1024) + offset,
       };
 
-      InterceptorResult::Intercepted(Some(state.chr_mem[chr_addr % state.chr_mem.len()]))
+      InterceptorResult::Intercepted(Some(self.chr_mem[chr_addr % self.chr_mem.len()]))
     } else {
       InterceptorResult::NotIntercepted
     }
@@ -291,31 +300,29 @@ impl<'a> BusInterceptor<'a, u16> for MMC1PPUMemoryInterceptor<'a> {
   fn intercept_write(&mut self, addr: u16, value: u8) -> InterceptorResult<()> {
     if addr < 0x1000 {
       let offset = addr as usize;
-      let mut state = self.cartridge.state.write().unwrap();
 
-      let chr_addr = match state.control.chr_rom_bank_mode() {
-        MMC1CHRROMBankMode::Full8KB => (state.chr_low_bank_select as usize * 8 * 1024) + offset,
-        MMC1CHRROMBankMode::Split4KB => (state.chr_low_bank_select as usize * 4 * 1024) + offset,
+      let chr_addr = match self.control.chr_rom_bank_mode() {
+        MMC1CHRROMBankMode::Full8KB => (self.chr_low_bank_select as usize * 8 * 1024) + offset,
+        MMC1CHRROMBankMode::Split4KB => (self.chr_low_bank_select as usize * 4 * 1024) + offset,
       };
 
-      let chr_mem_size = state.chr_mem.len();
-      state.chr_mem[chr_addr % chr_mem_size] = value;
+      let chr_mem_size = self.chr_mem.len();
+      self.chr_mem[chr_addr % chr_mem_size] = value;
 
       InterceptorResult::Intercepted(())
     } else if addr < 0x2000 {
       let offset = (addr - 0x1000) as usize;
-      let mut state = self.cartridge.state.write().unwrap();
 
-      let chr_addr = match state.control.chr_rom_bank_mode() {
+      let chr_addr = match self.control.chr_rom_bank_mode() {
         MMC1CHRROMBankMode::Full8KB => {
           // high bank select is ignored in 8kb mode
-          (state.chr_low_bank_select as usize * 8 * 1024) + offset + 0x1000
+          (self.chr_low_bank_select as usize * 8 * 1024) + offset + 0x1000
         }
-        MMC1CHRROMBankMode::Split4KB => (state.chr_high_bank_select as usize * 4 * 1024) + offset,
+        MMC1CHRROMBankMode::Split4KB => (self.chr_high_bank_select as usize * 4 * 1024) + offset,
       };
 
-      let chr_mem_size = state.chr_mem.len();
-      state.chr_mem[chr_addr % chr_mem_size] = value;
+      let chr_mem_size = self.chr_mem.len();
+      self.chr_mem[chr_addr % chr_mem_size] = value;
 
       InterceptorResult::Intercepted(())
     } else {
@@ -326,70 +333,49 @@ impl<'a> BusInterceptor<'a, u16> for MMC1PPUMemoryInterceptor<'a> {
 
 #[derive(Debug, Clone)]
 pub struct MMC1 {
-  pub prg_rom: Vec<u8>,
-  pub state: Arc<RwLock<MMC1State>>,
+  cpu_bus: MMC1CPUBusInterceptor,
 }
 
-impl Cartridge for MMC1 {
+impl Mapper for MMC1 {
+  type CPUBusInterceptor = MMC1CPUBusInterceptor;
+  type PPUMemoryInterceptor = MMC1PPUMemoryInterceptor;
+
   fn from_ines_rom(rom: crate::nes::INESRom) -> Self
   where
     Self: Sized,
   {
-    Self {
+    let chr_data = if rom.uses_chr_ram {
+      Vec::from([0; 1024 * 128])
+    } else {
+      rom.chr_data.clone()
+    };
+
+    let ppu_memory_interceptor = MMC1PPUMemoryInterceptor {
+      bus: PPUMemory::new(rom.initial_mirroring()),
+      chr_high_bank_select: 0,
+      chr_low_bank_select: 0,
+      chr_mem: chr_data,
+      control: MMC1ControlRegister(0).with_prg_rom_bank_mode(MMC1PRGROMBankMode::FixedHigh),
+    };
+
+    let cpu_bus = MMC1CPUBusInterceptor {
+      bus: CPUBus::new(PPUCPUBus::new(Box::new(ppu_memory_interceptor))),
+      control: MMC1ControlRegister(0).with_prg_rom_bank_mode(MMC1PRGROMBankMode::FixedHigh),
       prg_rom: rom.prg_data,
-      state: Arc::new(RwLock::new(MMC1State::new(if rom.uses_chr_ram {
-        Vec::from([0; 1024 * 128])
-      } else {
-        rom.chr_data
-      }))),
-    }
+      prg_bank_select: 0,
+      prg_ram_bank_select: 0,
+      prg_ram: [0; 32 * 1024],
+      shift_register: MMC1ShiftRegister::new(),
+    };
+
+    Self { cpu_bus }
   }
 
-  fn cpu_bus_interceptor<'a>(&'a self, bus: CPUBus<'a>) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(MMC1CPUBusInterceptor {
-      bus,
-      cartridge: self,
-    })
+  fn cpu_bus(&self) -> &Self::CPUBusInterceptor {
+    &self.cpu_bus
   }
 
-  fn cpu_bus_interceptor_mut<'a>(
-    &'a self,
-    bus: CPUBus<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(MMC1CPUBusInterceptor {
-      bus,
-      cartridge: self,
-    })
-  }
-
-  fn ppu_memory_interceptor<'a>(
-    &'a self,
-    bus: PPUMemory<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(MMC1PPUMemoryInterceptor {
-      bus,
-      cartridge: self,
-    })
-  }
-
-  fn ppu_memory_interceptor_mut<'a>(
-    &'a self,
-    bus: PPUMemory<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(MMC1PPUMemoryInterceptor {
-      bus,
-      cartridge: self,
-    })
-  }
-
-  fn get_mirroring(&self) -> CartridgeMirroring {
-    let state = self.state.read().unwrap();
-    match state.control.mirroring() {
-      MMC1MirroringMode::SingleScreenLow | MMC1MirroringMode::SingleScreenHigh => {
-        CartridgeMirroring::SingleScreen
-      }
-      MMC1MirroringMode::Vertical => CartridgeMirroring::Vertical,
-      MMC1MirroringMode::Horizontal => CartridgeMirroring::Horizontal,
-    }
+  fn cpu_bus_mut(&mut self) -> &mut Self::CPUBusInterceptor {
+    &mut self.cpu_bus
   }
 }

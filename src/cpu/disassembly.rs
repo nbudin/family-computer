@@ -1,18 +1,22 @@
 use std::fmt::{Debug, Display};
 
 use crate::{
-  bus::{Bus, BusInterceptor},
-  ppu::PPUAddressLatch,
+  bus::Bus,
+  ppu::{PPUAddressLatch, PPU},
 };
 
-use super::{Instruction, Operand, CPU};
+use super::{CPUBusTrait, Instruction, Operand, CPU};
 
 #[derive(Clone, Debug)]
 pub struct ExecutedInstruction {
   pub instruction: Instruction,
   pub opcode: u8,
   pub disassembled_instruction: DisassembledInstruction,
-  pub prev_cpu: CPU,
+}
+
+#[derive(Clone, Debug)]
+pub struct DisassemblyMachineState {
+  pub cpu: CPU,
   pub scanline: i32,
   pub cycle: i32,
   pub cycle_count: u64,
@@ -25,11 +29,29 @@ pub struct ExecutedInstruction {
   pub ppu_address_latch: PPUAddressLatch,
 }
 
+impl DisassemblyMachineState {
+  pub fn capture(cpu: &CPU, ppu: &PPU, cpu_cycle_count: u64, cpu_bus: &dyn CPUBusTrait) -> Self {
+    DisassemblyMachineState {
+      cpu: cpu.clone(),
+      scanline: ppu.scanline,
+      cycle: ppu.cycle,
+      cycle_count: cpu_cycle_count,
+      vram_addr: ppu.vram_addr.into(),
+      tram_addr: ppu.tram_addr.into(),
+      ppu2002: cpu_bus.read_readonly(0x2002),
+      ppu2004: cpu_bus.read_readonly(0x2004),
+      ppu2007: cpu_bus.read_readonly(0x2007),
+      fine_x: ppu.fine_x,
+      ppu_address_latch: ppu.address_latch,
+    }
+  }
+}
+
 impl ExecutedInstruction {
-  pub fn disassemble(&self) -> String {
+  pub fn disassemble(&self, prev_state: &DisassemblyMachineState) -> String {
     format!(
       "{:04X}  {:02X} {:6}{}{:32}A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:3},{:3} CYC:{}",
-      self.prev_cpu.pc,
+      prev_state.cpu.pc,
       self.opcode,
       self
         .instruction
@@ -47,21 +69,21 @@ impl ExecutedInstruction {
         " "
       },
       self.disassembled_instruction.to_string(),
-      self.prev_cpu.a,
-      self.prev_cpu.x,
-      self.prev_cpu.y,
-      u8::from(self.prev_cpu.p),
-      self.prev_cpu.s,
-      self.scanline + 1,
-      self.cycle,
-      self.cycle_count
+      prev_state.cpu.a,
+      prev_state.cpu.x,
+      prev_state.cpu.y,
+      u8::from(prev_state.cpu.p),
+      prev_state.cpu.s,
+      prev_state.scanline + 1,
+      prev_state.cycle,
+      prev_state.cycle_count
     )
   }
 
-  pub fn disassemble_with_ppu(&self) -> String {
+  pub fn disassemble_with_ppu(&self, prev_state: &DisassemblyMachineState) -> String {
     format!(
       "{:04X}  {:02X} {:6}{}{:32}A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} v:{:04X} t:{:04X} x:{} w:{} CYC:{:3} SL:{:<3} 2002:{:02X} 2004:{:02X} 2007:{:02X}",
-      self.prev_cpu.pc,
+      prev_state.cpu.pc,
       self.opcode,
       self
         .instruction
@@ -79,23 +101,23 @@ impl ExecutedInstruction {
         " "
       },
       self.disassembled_instruction.to_string(),
-      self.prev_cpu.a,
-      self.prev_cpu.x,
-      self.prev_cpu.y,
-      u8::from(self.prev_cpu.p),
-      self.prev_cpu.s,
-      self.vram_addr,
-      self.tram_addr,
-      self.fine_x,
-      match self.ppu_address_latch {
+      prev_state.cpu.a,
+      prev_state.cpu.x,
+      prev_state.cpu.y,
+      u8::from(prev_state.cpu.p),
+      prev_state.cpu.s,
+      prev_state.vram_addr,
+      prev_state.tram_addr,
+      prev_state.fine_x,
+      match prev_state.ppu_address_latch {
         PPUAddressLatch::High => 0,
         PPUAddressLatch::Low => 1
       },
-      self.cycle,
-      self.scanline,
-      self.ppu2002,
-      self.ppu2004,
-      self.ppu2007
+      prev_state.cycle,
+      prev_state.scanline,
+      prev_state.ppu2002,
+      prev_state.ppu2004,
+      prev_state.ppu2007
     )
   }
 }
@@ -121,11 +143,7 @@ impl Display for DisassembledInstruction {
 }
 
 impl Instruction {
-  pub fn disassemble(
-    &self,
-    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
-    cpu: &CPU,
-  ) -> DisassembledInstruction {
+  pub fn disassemble(&self, cpu_bus: &dyn CPUBusTrait, cpu: &CPU) -> DisassembledInstruction {
     let eval = match &self {
       Instruction::JSR(_) => false,
       Instruction::JMP(op) => matches!(op, &Operand::Indirect(_)),
@@ -276,12 +294,7 @@ impl Display for DisassembledOperand {
 }
 
 impl Operand {
-  fn disassemble(
-    &self,
-    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
-    cpu: &CPU,
-    eval: bool,
-  ) -> DisassembledOperand {
+  fn disassemble(&self, cpu_bus: &dyn CPUBusTrait, cpu: &CPU, eval: bool) -> DisassembledOperand {
     match self {
       Operand::Accumulator => DisassembledOperand::Accumulator,
       Operand::Immediate(value) => DisassembledOperand::Immediate { value: *value },
@@ -363,7 +376,7 @@ impl Operand {
 
   fn get_eval_result<AddrType: Clone + Debug, F: FnOnce() -> AddrType>(
     &self,
-    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
+    cpu_bus: &dyn CPUBusTrait,
     cpu: &CPU,
     eval: bool,
     f: F,

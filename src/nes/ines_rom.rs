@@ -4,6 +4,8 @@ use std::{
   path::Path,
 };
 
+use crate::cartridge::CartridgeMirroring;
+
 #[derive(Debug, Clone)]
 pub struct INESRom {
   pub prg_data: Vec<u8>,
@@ -74,5 +76,13 @@ impl INESRom {
       mapper_id: u16::from(mapper_id),
       uses_chr_ram,
     })
+  }
+
+  pub fn initial_mirroring(&self) -> CartridgeMirroring {
+    if self.vertical_mirroring {
+      CartridgeMirroring::Vertical
+    } else {
+      CartridgeMirroring::Horizontal
+    }
   }
 }

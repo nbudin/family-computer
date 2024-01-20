@@ -1,4 +1,4 @@
-pub trait Bus<AddrType: Clone> {
+pub trait Bus<AddrType: Clone>: Send + Sync {
   fn try_read_readonly(&self, addr: AddrType) -> Option<u8>;
   fn write(&mut self, addr: AddrType, value: u8);
 
@@ -19,6 +19,7 @@ pub trait Bus<AddrType: Clone> {
 mod tests {
   pub use super::*;
 
+  #[derive(Clone)]
   struct FakeBus {
     pub memory: [u8; 256],
     pub address_42_read: bool,

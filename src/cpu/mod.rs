@@ -58,15 +58,15 @@ mod tests {
     let (sender, _receiver) = smol::channel::unbounded();
 
     let mut machine = NES::from_rom(rom, sender);
-    machine.cpu.pc = 0xc000;
-    machine.cpu.p = 0x24.into();
+    machine.state.cpu.pc = 0xc000;
+    machine.state.cpu.p = 0x24.into();
 
     let mut fake_pixbuf = Pixbuf::new();
     let disasm_writer = StringWriter::new();
     machine.disassembly_writer = Some(Arc::new(RwLock::new(disasm_writer.clone())));
 
     // weird PPU behavior tests start here and I'm not sure those are valid
-    while machine.cpu_cycle_count < 26520 {
+    while machine.state.cpu_cycle_count < 26520 {
       machine.tick(&mut fake_pixbuf);
     }
 

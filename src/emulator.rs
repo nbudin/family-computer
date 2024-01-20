@@ -75,15 +75,15 @@ impl Emulator {
   }
 
   fn get_machine_state(&self) -> MachineState {
-    let cpu_bus = self.nes.cpu_bus();
+    let cpu_bus = self.nes.state.cartridge.cpu_bus();
 
     MachineState {
       emulator_state: self.state,
-      cpu: self.nes.cpu.clone(),
-      vram_addr: self.nes.ppu.vram_addr,
-      tram_addr: self.nes.ppu.tram_addr,
-      scanline: self.nes.ppu.scanline,
-      cycle: self.nes.ppu.cycle,
+      cpu: self.nes.state.cpu.clone(),
+      vram_addr: self.nes.state.ppu.vram_addr,
+      tram_addr: self.nes.state.ppu.tram_addr,
+      scanline: self.nes.state.ppu.scanline,
+      cycle: self.nes.state.ppu.cycle,
       mem2002: cpu_bus.read_readonly(0x2002),
       mem2004: cpu_bus.read_readonly(0x2004),
       mem2007: cpu_bus.read_readonly(0x2007),
@@ -110,9 +110,12 @@ impl Emulator {
   ) {
     while let Ok(message) = receiver.try_recv() {
       match message {
-        EmulationInboundMessage::ControllerButtonChanged(button, pressed) => {
-          self.nes.controllers[0].set_button_state(button, pressed)
-        }
+        EmulationInboundMessage::ControllerButtonChanged(button, pressed) => self
+          .nes
+          .state
+          .cartridge
+          .cpu_bus_mut()
+          .set_controller_button_state(0, button, pressed),
         EmulationInboundMessage::EmulatorStateChangeRequested(new_state) => self.state = new_state,
       }
     }
@@ -151,11 +154,11 @@ impl Emulator {
         self.state = EmulatorState::Pause;
       }
       EmulatorState::RunUntilNextInstruction => {
-        let start_cycles = self.nes.cpu_cycle_count;
+        let start_cycles = self.nes.state.cpu_cycle_count;
         loop {
           self.nes.tick(&mut self.pixbuf.write().unwrap());
 
-          if self.nes.cpu_cycle_count > start_cycles {
+          if self.nes.state.cpu_cycle_count > start_cycles {
             break;
           }
         }

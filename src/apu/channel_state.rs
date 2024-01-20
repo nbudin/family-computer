@@ -4,7 +4,7 @@ use crate::{apu::APUTriangleOscillatorCommand, audio::synth::SynthCommand};
 
 use super::{APUPulseChannel, APUPulseOscillatorCommand, APUSynthChannel, APUTriangleChannel, APU};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct APUState {
   pulse1: APUChannelState,
   pulse2: APUChannelState,
@@ -39,11 +39,7 @@ impl APUState {
       .pulse1
       .diff_commands(&other.pulse1, time_since_start)
       .into_iter()
-      .chain(
-        self
-          .pulse2
-          .diff_commands(&other.pulse2, time_since_start),
-      )
+      .chain(self.pulse2.diff_commands(&other.pulse2, time_since_start))
       .chain(
         self
           .triangle
@@ -53,7 +49,7 @@ impl APUState {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum APUChannelState {
   Pulse1(APUPulseChannelState),
   Pulse2(APUPulseChannelState),

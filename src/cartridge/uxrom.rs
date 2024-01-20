@@ -1,37 +1,28 @@
-use std::sync::{Arc, RwLock};
-
 use crate::{
-  bus::{BusInterceptor, InterceptorResult, PassthroughBusInterceptor},
   cpu::CPUBus,
-  ppu::PPUMemory,
+  ppu::{PPUCPUBus, PPUMemory},
 };
 
-use super::{Cartridge, CartridgeMirroring, CartridgeState};
+use super::{
+  bus_interceptor::{BusInterceptor, InterceptorResult},
+  Mapper,
+};
 
 #[derive(Debug, Clone)]
-pub struct UxROMState {
-  pub bank_select: u8,
+pub struct UxROMCPUBusInterceptor {
+  prg_rom: Vec<u8>,
+  bank_select: u8,
+  bus: CPUBus<UxROMPPUMemoryInterceptor>,
 }
 
-impl UxROMState {
-  fn new() -> Self {
-    Self { bank_select: 0 }
-  }
-}
+impl BusInterceptor<u16> for UxROMCPUBusInterceptor {
+  type BusType = CPUBus<UxROMPPUMemoryInterceptor>;
 
-impl CartridgeState for UxROMState {}
-
-struct UxROMCPUBusInterceptor<'a> {
-  cartridge: &'a UxROM,
-  bus: CPUBus<'a>,
-}
-
-impl<'a> BusInterceptor<'a, u16> for UxROMCPUBusInterceptor<'a> {
-  fn bus(&self) -> &dyn crate::bus::Bus<u16> {
+  fn get_inner(&self) -> &CPUBus<UxROMPPUMemoryInterceptor> {
     &self.bus
   }
 
-  fn bus_mut(&mut self) -> &mut dyn crate::bus::Bus<u16> {
+  fn get_inner_mut(&mut self) -> &mut CPUBus<UxROMPPUMemoryInterceptor> {
     &mut self.bus
   }
 
@@ -39,20 +30,18 @@ impl<'a> BusInterceptor<'a, u16> for UxROMCPUBusInterceptor<'a> {
     if addr < 0x8000 {
       InterceptorResult::NotIntercepted
     } else if addr < 0xc000 {
-      let state = self.cartridge.state.read().unwrap();
       InterceptorResult::Intercepted(Some(
         *self
-          .cartridge
           .prg_rom
           .get(
-            ((0x4000 * (state.bank_select as usize)) + usize::from(addr - 0x8000))
-              % self.cartridge.prg_rom.len(),
+            ((0x4000 * (self.bank_select as usize)) + usize::from(addr - 0x8000))
+              % self.prg_rom.len(),
           )
           .unwrap(),
       ))
     } else {
       InterceptorResult::Intercepted(Some(
-        self.cartridge.prg_rom[self.cartridge.prg_rom.len() - 0x4000 + usize::from(addr - 0xc000)],
+        self.prg_rom[self.prg_rom.len() - 0x4000 + usize::from(addr - 0xc000)],
       ))
     }
   }
@@ -61,22 +50,56 @@ impl<'a> BusInterceptor<'a, u16> for UxROMCPUBusInterceptor<'a> {
     if addr < 0x8000 {
       InterceptorResult::NotIntercepted
     } else {
-      let mut state = self.cartridge.state.write().unwrap();
-      state.bank_select = value;
+      self.bank_select = value;
       InterceptorResult::Intercepted(())
     }
   }
 }
 
 #[derive(Debug, Clone)]
-pub struct UxROM {
-  pub prg_rom: Vec<u8>,
-  pub chr_rom: [u8; 8 * 1024],
-  pub state: Arc<RwLock<UxROMState>>,
-  mirroring: CartridgeMirroring,
+pub struct UxROMPPUMemoryInterceptor {
+  chr_rom: [u8; 8 * 1024],
+  bus: PPUMemory,
 }
 
-impl Cartridge for UxROM {
+impl BusInterceptor<u16> for UxROMPPUMemoryInterceptor {
+  type BusType = PPUMemory;
+
+  fn get_inner(&self) -> &PPUMemory {
+    &self.bus
+  }
+
+  fn get_inner_mut(&mut self) -> &mut PPUMemory {
+    &mut self.bus
+  }
+
+  fn intercept_read_readonly(&self, addr: u16) -> InterceptorResult<Option<u8>> {
+    if addr < 0x2000 {
+      InterceptorResult::Intercepted(Some(self.chr_rom[usize::from(addr)]))
+    } else {
+      InterceptorResult::NotIntercepted
+    }
+  }
+
+  fn intercept_write(&mut self, addr: u16, value: u8) -> InterceptorResult<()> {
+    if addr < 0x2000 {
+      self.chr_rom[usize::from(addr)] = value;
+      InterceptorResult::Intercepted(())
+    } else {
+      InterceptorResult::NotIntercepted
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct UxROM {
+  cpu_bus_interceptor: UxROMCPUBusInterceptor,
+}
+
+impl Mapper for UxROM {
+  type CPUBusInterceptor = UxROMCPUBusInterceptor;
+  type PPUMemoryInterceptor = UxROMPPUMemoryInterceptor;
+
   fn from_ines_rom(rom: crate::nes::INESRom) -> Self
   where
     Self: Sized,
@@ -88,50 +111,26 @@ impl Cartridge for UxROM {
       }
     }
 
-    Self {
-      prg_rom: rom.prg_data,
+    let ppu_memory_interceptor = UxROMPPUMemoryInterceptor {
+      bus: PPUMemory::new(rom.initial_mirroring()),
       chr_rom,
-      state: Arc::new(RwLock::new(UxROMState::new())),
-      mirroring: if rom.vertical_mirroring {
-        CartridgeMirroring::Vertical
-      } else {
-        CartridgeMirroring::Horizontal
-      },
+    };
+    let cpu_bus_interceptor = UxROMCPUBusInterceptor {
+      bus: CPUBus::new(PPUCPUBus::new(Box::new(ppu_memory_interceptor))),
+      prg_rom: rom.prg_data,
+      bank_select: 0,
+    };
+
+    Self {
+      cpu_bus_interceptor,
     }
   }
 
-  fn cpu_bus_interceptor<'a>(&'a self, bus: CPUBus<'a>) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(UxROMCPUBusInterceptor {
-      bus,
-      cartridge: self,
-    })
+  fn cpu_bus(&self) -> &UxROMCPUBusInterceptor {
+    &self.cpu_bus_interceptor
   }
 
-  fn cpu_bus_interceptor_mut<'a>(
-    &'a self,
-    bus: CPUBus<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(UxROMCPUBusInterceptor {
-      bus,
-      cartridge: self,
-    })
-  }
-
-  fn ppu_memory_interceptor<'a>(
-    &'a self,
-    bus: PPUMemory<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(PassthroughBusInterceptor::new(bus))
-  }
-
-  fn ppu_memory_interceptor_mut<'a>(
-    &'a self,
-    bus: PPUMemory<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(PassthroughBusInterceptor::new(bus))
-  }
-
-  fn get_mirroring(&self) -> CartridgeMirroring {
-    self.mirroring
+  fn cpu_bus_mut(&mut self) -> &mut UxROMCPUBusInterceptor {
+    &mut self.cpu_bus_interceptor
   }
 }

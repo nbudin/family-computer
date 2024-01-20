@@ -1,8 +1,8 @@
 use strum::IntoStaticStr;
 
-use crate::bus::{Bus, BusInterceptor};
+use crate::bus::Bus;
 
-use super::{Operand, CPU};
+use super::{CPUBusTrait, Operand, CPU};
 
 #[derive(Debug, IntoStaticStr, Clone)]
 #[allow(clippy::upper_case_acronyms)]
@@ -489,29 +489,26 @@ impl Instruction {
     }
   }
 
-  fn load_byte(cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>, cpu: &mut CPU) -> u8 {
+  fn load_byte(cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) -> u8 {
     let pc = cpu.pc;
     let byte = cpu_bus.read(pc);
     CPU::set_pc(&Operand::Absolute(cpu.pc.wrapping_add(1)), cpu_bus, cpu);
     byte
   }
 
-  fn load_addr(cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>, cpu: &mut CPU) -> u16 {
+  fn load_addr(cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) -> u16 {
     let low = Instruction::load_byte(cpu_bus, cpu);
     let high = Instruction::load_byte(cpu_bus, cpu);
 
     (u16::from(high) << 8) + u16::from(low)
   }
 
-  fn load_offset(cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>, cpu: &mut CPU) -> i8 {
+  fn load_offset(cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) -> i8 {
     let byte = Instruction::load_byte(cpu_bus, cpu);
     byte as i8
   }
 
-  pub fn load_instruction(
-    cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>,
-    cpu: &mut CPU,
-  ) -> (Instruction, u8) {
+  pub fn load_instruction(cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) -> (Instruction, u8) {
     let opcode = Instruction::load_byte(cpu_bus, cpu);
 
     let instruction = match opcode {

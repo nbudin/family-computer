@@ -2,12 +2,9 @@ use std::fmt::Debug;
 
 use bitfield_struct::bitfield;
 
-use crate::{
-  bus::{Bus, BusInterceptor},
-  nes::NES,
-};
+use crate::bus::Bus;
 
-use super::{ExecutedInstruction, Instruction, Operand};
+use super::{CPUBusTrait, ExecutedInstruction, Instruction, Operand};
 
 #[bitfield(u8)]
 pub struct CPUStatusRegister {
@@ -59,12 +56,7 @@ impl CPU {
     }
   }
 
-  pub fn set_operand(
-    op: &Operand,
-    value: u8,
-    cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>,
-    cpu: &mut CPU,
-  ) {
+  pub fn set_operand(op: &Operand, value: u8, cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) {
     match op {
       Operand::Accumulator => cpu.a = value,
       _ => {
@@ -74,11 +66,7 @@ impl CPU {
     }
   }
 
-  pub fn set_pc(
-    addr: &Operand,
-    cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>,
-    cpu: &mut CPU,
-  ) -> bool {
+  pub fn set_pc(addr: &Operand, cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) -> bool {
     match addr {
       Operand::Absolute(_) | Operand::Indirect(_) => {
         cpu.pc = addr.get_addr(&cpu, cpu_bus).0;
@@ -96,7 +84,7 @@ impl CPU {
     }
   }
 
-  pub fn get_stack_dump(&self, cpu_bus: &Box<dyn BusInterceptor<'_, u16>>) -> Vec<u8> {
+  pub fn get_stack_dump(&self, cpu_bus: &dyn CPUBusTrait) -> Vec<u8> {
     let mut values: Vec<u8> = vec![];
     let mut addr = self.s;
 
@@ -111,19 +99,19 @@ impl CPU {
     values
   }
 
-  fn push_stack(value: u8, cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>, cpu: &mut CPU) {
+  fn push_stack(value: u8, cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) {
     let addr = u16::from(cpu.s) + 0x100;
     cpu_bus.write(addr, value);
     cpu.s -= 1;
   }
 
-  fn pull_stack(cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>, cpu: &mut CPU) -> u8 {
+  fn pull_stack(cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) -> u8 {
     cpu.s += 1;
     let addr = u16::from(cpu.s) + 0x100;
     cpu_bus.read(addr)
   }
 
-  pub fn reset(cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>, cpu: &mut CPU) {
+  pub fn reset(cpu_bus: &mut dyn CPUBusTrait, cpu: &mut CPU) {
     let low = cpu_bus.read(0xfffc);
     let high = cpu_bus.read(0xfffd);
     let reset_vector = (u16::from(high) << 8) + u16::from(low);
@@ -139,101 +127,75 @@ impl CPU {
     cpu.wait_cycles = 7;
   }
 
-  pub fn tick(nes: &mut NES) -> Option<ExecutedInstruction> {
-    let prev_ppu_cycle = nes.ppu.cycle;
-    let prev_ppu_scanline = nes.ppu.scanline;
-    let prev_vram_addr: u16 = u16::from(nes.ppu.vram_addr);
-    let prev_tram_addr: u16 = u16::from(nes.ppu.tram_addr);
-    let prev_fine_x = nes.ppu.fine_x;
-    let prev_address_latch = nes.ppu.address_latch;
-    let prev_cycle_count = nes.cpu_cycle_count;
-    let prev_cpu = nes.cpu.clone();
-
-    let (mut cpu_bus, mut cpu) = nes.cpu_bus_mut();
-
-    let prev_ppu_2002 = cpu_bus.read_readonly(0x2002);
-    let prev_ppu_2004 = cpu_bus.read_readonly(0x2004);
-    let prev_ppu_2007 = cpu_bus.read_readonly(0x2007);
-
-    if cpu.nmi_set {
+  pub fn tick(&mut self, cpu_bus: &mut dyn CPUBusTrait) -> Option<ExecutedInstruction> {
+    if self.nmi_set {
       CPU::push_stack(
-        u8::try_from((cpu.pc & 0xff00) >> 8).unwrap(),
-        &mut cpu_bus,
-        &mut cpu,
+        u8::try_from((self.pc & 0xff00) >> 8).unwrap(),
+        cpu_bus,
+        self,
       );
-      CPU::push_stack(u8::try_from(cpu.pc & 0xff).unwrap(), &mut cpu_bus, &mut cpu);
-      cpu.p.set_break_flag(false);
-      cpu.p.set_interrupt_disable(true);
-      cpu.p.set_unused(true);
-      CPU::push_stack(cpu.p.into(), &mut cpu_bus, &mut cpu);
+      CPU::push_stack(u8::try_from(self.pc & 0xff).unwrap(), cpu_bus, self);
+      self.p.set_break_flag(false);
+      self.p.set_interrupt_disable(true);
+      self.p.set_unused(true);
+      CPU::push_stack(self.p.into(), cpu_bus, self);
 
       let low = cpu_bus.read(0xfffa);
       let high = cpu_bus.read(0xfffb);
       let nmi_vector = (u16::from(high) << 8) + u16::from(low);
 
-      CPU::set_pc(&Operand::Absolute(nmi_vector), &mut cpu_bus, &mut cpu);
-      cpu.nmi_set = false;
+      CPU::set_pc(&Operand::Absolute(nmi_vector), cpu_bus, self);
+      self.nmi_set = false;
 
-      cpu.wait_cycles = 6;
+      self.wait_cycles = 6;
       return None;
     }
 
-    if cpu.wait_cycles > 0 {
-      cpu.wait_cycles -= 1;
+    if self.wait_cycles > 0 {
+      self.wait_cycles -= 1;
       return None;
     }
 
-    if cpu.irq_set && !cpu.p.interrupt_disable() {
+    if self.irq_set && !self.p.interrupt_disable() {
       CPU::push_stack(
-        u8::try_from((cpu.pc & 0xff00) >> 8).unwrap(),
-        &mut cpu_bus,
-        &mut cpu,
+        u8::try_from((self.pc & 0xff00) >> 8).unwrap(),
+        cpu_bus,
+        self,
       );
-      CPU::push_stack(u8::try_from(cpu.pc & 0xff).unwrap(), &mut cpu_bus, &mut cpu);
-      CPU::push_stack(cpu.p.into(), &mut cpu_bus, &mut cpu);
-      cpu.p.set_break_flag(false);
-      cpu.p.set_interrupt_disable(true);
-      cpu.p.set_unused(true);
+      CPU::push_stack(u8::try_from(self.pc & 0xff).unwrap(), cpu_bus, self);
+      CPU::push_stack(self.p.into(), cpu_bus, self);
+      self.p.set_break_flag(false);
+      self.p.set_interrupt_disable(true);
+      self.p.set_unused(true);
 
       let low = cpu_bus.read(0xfffe);
       let high = cpu_bus.read(0xffff);
       let irq_vector = (u16::from(high) << 8) + u16::from(low);
 
-      CPU::set_pc(&Operand::Absolute(irq_vector), &mut cpu_bus, &mut cpu);
+      CPU::set_pc(&Operand::Absolute(irq_vector), cpu_bus, self);
 
-      cpu.wait_cycles = 6;
+      self.wait_cycles = 6;
       return None;
     }
 
-    cpu.p.set_unused(true);
+    self.p.set_unused(true);
 
-    let (instruction, opcode) = Instruction::load_instruction(&mut cpu_bus, &mut cpu);
-    cpu.wait_cycles = instruction.base_cycles() - 1;
-    let disassembled_instruction = instruction.disassemble(&cpu_bus, &cpu);
-    CPU::execute_instruction(&instruction, true, &mut cpu_bus, &mut cpu);
+    let (instruction, opcode) = Instruction::load_instruction(cpu_bus, self);
+    self.wait_cycles = instruction.base_cycles() - 1;
+    let disassembled_instruction = instruction.disassemble(cpu_bus, &self);
+    CPU::execute_instruction(&instruction, true, cpu_bus, self);
 
     Some(ExecutedInstruction {
       instruction,
       opcode,
-      cycle: prev_ppu_cycle,
-      scanline: prev_ppu_scanline,
-      cycle_count: prev_cycle_count,
       disassembled_instruction,
-      prev_cpu,
-      ppu2002: prev_ppu_2002,
-      ppu2004: prev_ppu_2004,
-      ppu2007: prev_ppu_2007,
-      tram_addr: prev_tram_addr,
-      vram_addr: prev_vram_addr,
-      fine_x: prev_fine_x,
-      ppu_address_latch: prev_address_latch,
     })
   }
 
   fn execute_instruction(
     instruction: &Instruction,
     add_page_boundary_cross_cycles: bool,
-    cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>,
+    cpu_bus: &mut dyn CPUBusTrait,
     cpu: &mut CPU,
   ) {
     match &instruction {

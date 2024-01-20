@@ -1,7 +1,7 @@
 use bitfield_struct::bitfield;
 use bytemuck::{Pod, Zeroable};
 
-use crate::{bus::Bus, nes::NES};
+use crate::bus::Bus;
 
 use super::PPU;
 
@@ -43,21 +43,20 @@ pub fn flip_byte(b: u8) -> u8 {
 
 impl PPU {
   pub fn get_current_pixel_fg_color_palette_priority_and_sprite0(
-    nes: &NES,
+    &self,
   ) -> (u8, u8, SpritePriority, bool) {
     let mut fg_pixel: u8 = 0;
     let mut fg_palette: u8 = 0;
     let mut priority: SpritePriority = SpritePriority::Background;
     let mut sprite0 = false;
 
-    if nes.ppu.mask.render_sprites() {
-      for sprite_index in 0..nes.ppu.sprite_scanline.len() {
-        let sprite = &nes.ppu.sprite_scanline[sprite_index];
+    if self.mask.render_sprites() {
+      for sprite_index in 0..self.sprite_scanline.len() {
+        let sprite = &self.sprite_scanline[sprite_index];
 
         if sprite.oam_entry.x() == 0 {
-          let fg_pixel_low = ((nes.ppu.sprite_shifter_pattern_low[sprite_index] & 0x80) > 1) as u8;
-          let fg_pixel_high =
-            ((nes.ppu.sprite_shifter_pattern_high[sprite_index] & 0x80) > 1) as u8;
+          let fg_pixel_low = ((self.sprite_shifter_pattern_low[sprite_index] & 0x80) > 1) as u8;
+          let fg_pixel_high = ((self.sprite_shifter_pattern_high[sprite_index] & 0x80) > 1) as u8;
           fg_pixel = (fg_pixel_high << 1) | fg_pixel_low;
 
           fg_palette = sprite.oam_entry.palette_index() + 4;
@@ -81,84 +80,87 @@ impl PPU {
     (fg_pixel, fg_palette, priority, sprite0)
   }
 
-  pub fn evaluate_scanline_sprites(nes: &mut NES) {
-    nes.ppu.sprite_scanline.truncate(0);
+  pub fn evaluate_scanline_sprites(&mut self) {
+    self.sprite_scanline.truncate(0);
 
-    for (oam_index, entry) in nes.ppu.oam.iter().enumerate() {
-      let diff = nes.ppu.scanline - entry.y() as i32;
-      if diff >= 0 && diff < nes.ppu.control.sprite_height().into() {
-        nes.ppu.sprite_scanline.push(ActiveSprite {
+    for (oam_index, entry) in self.oam.iter().enumerate() {
+      let diff = self.scanline - entry.y() as i32;
+      if diff >= 0 && diff < self.control.sprite_height().into() {
+        self.sprite_scanline.push(ActiveSprite {
           oam_entry: *entry,
           oam_index,
         });
       }
 
-      if nes.ppu.sprite_scanline.len() == 9 {
+      if self.sprite_scanline.len() == 9 {
         break;
       }
     }
 
-    nes
-      .ppu
+    self
       .status
-      .set_sprite_overflow(nes.ppu.sprite_scanline.len() > 8);
-    nes.ppu.sprite_scanline.truncate(8);
+      .set_sprite_overflow(self.sprite_scanline.len() > 8);
+    self.sprite_scanline.truncate(8);
   }
 
-  pub fn load_sprite_data_for_next_scanline(nes: &mut NES, sprite_index: usize) {
-    let sprite = nes.ppu.sprite_scanline[sprite_index].clone();
+  pub fn load_sprite_data_for_next_scanline(
+    &mut self,
+    sprite_index: usize,
+    ppu_memory: &mut dyn Bus<u16>,
+  ) {
+    let sprite = self.sprite_scanline[sprite_index].clone();
 
-    let sprite_pattern_addr_low = if !nes.ppu.control.sprite_size() {
+    let sprite_pattern_addr_low = if !self.control.sprite_size() {
       // 8x8 mode
-      let sprite_pattern_start_low = ((nes.ppu.control.pattern_sprite() as u16) << 12)
-        | ((sprite.oam_entry.tile_id() as u16) << 4);
+      let sprite_pattern_start_low =
+        ((self.control.pattern_sprite() as u16) << 12) | ((sprite.oam_entry.tile_id() as u16) << 4);
 
       if !sprite.oam_entry.flip_vertical() {
         // sprite is not vertically flipped
-        sprite_pattern_start_low | ((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16))
+        sprite_pattern_start_low | ((self.scanline as u16) - (sprite.oam_entry.y() as u16))
       } else {
         // sprite is vertically flipped
-        sprite_pattern_start_low | (7 - ((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16)))
+        sprite_pattern_start_low | (7 - ((self.scanline as u16) - (sprite.oam_entry.y() as u16)))
       }
     } else {
       // 8x16 mode
-      let top_half = nes.ppu.scanline - (sprite.oam_entry.y() as i32) < 8;
+      let top_half = self.scanline - (sprite.oam_entry.y() as i32) < 8;
 
       if !sprite.oam_entry.flip_vertical() {
         // sprite is not vertically flipped
         if top_half {
           (((sprite.oam_entry.tile_id() as u16) & 0x01) << 12)
             | (((sprite.oam_entry.tile_id() as u16) & 0xfe) << 4)
-            | (((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16)) & 0x07)
+            | (((self.scanline as u16) - (sprite.oam_entry.y() as u16)) & 0x07)
         } else {
           (((sprite.oam_entry.tile_id() as u16) & 0x01) << 12)
             | ((((sprite.oam_entry.tile_id() as u16) & 0xfe) + 1) << 4)
-            | (((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16)) & 0x07)
+            | (((self.scanline as u16) - (sprite.oam_entry.y() as u16)) & 0x07)
         }
       } else {
         // sprite is vertically flipped
         if top_half {
           (((sprite.oam_entry.tile_id() as u16) & 0x01) << 12)
             | ((((sprite.oam_entry.tile_id() as u16) & 0xfe) + 1) << 4)
-            | ((7 - ((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16))) & 0x07)
+            | ((7 - ((self.scanline as u16) - (sprite.oam_entry.y() as u16))) & 0x07)
         } else {
           (((sprite.oam_entry.tile_id() as u16) & 0x01) << 12)
             | (((sprite.oam_entry.tile_id() as u16) & 0xfe) << 4)
-            | ((7 - ((nes.ppu.scanline as u16) - (sprite.oam_entry.y() as u16))) & 0x07)
+            | ((7 - ((self.scanline as u16) - (sprite.oam_entry.y() as u16))) & 0x07)
         }
       }
     };
 
     let sprite_pattern_addr_high = sprite_pattern_addr_low + 8;
-    let mut sprite_pattern_bits_low = nes.ppu_memory_mut().read(sprite_pattern_addr_low);
-    let mut sprite_pattern_bits_high = nes.ppu_memory_mut().read(sprite_pattern_addr_high);
+    let mut sprite_pattern_bits_low = ppu_memory.read(sprite_pattern_addr_low);
+    let mut sprite_pattern_bits_high = ppu_memory.read(sprite_pattern_addr_high);
 
     if sprite.oam_entry.flip_horizontal() {
       sprite_pattern_bits_low = flip_byte(sprite_pattern_bits_low);
       sprite_pattern_bits_high = flip_byte(sprite_pattern_bits_high);
     }
 
-    nes.ppu.sprite_shifter_pattern_low[sprite_index] = sprite_pattern_bits_low;
-    nes.ppu.sprite_shifter_pattern_high[sprite_index] = sprite_pattern_bits_high;
+    self.sprite_shifter_pattern_low[sprite_index] = sprite_pattern_bits_low;
+    self.sprite_shifter_pattern_high[sprite_index] = sprite_pattern_bits_high;
   }
 }

@@ -1,13 +1,15 @@
 use std::time::Duration;
 
-use crate::{bus::Bus, nes::NES};
+use smol::channel::Sender;
+
+use crate::{audio::synth::SynthCommand, bus::Bus};
 
 use super::{
   APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel, APUSequencerMode, APUState,
-  APUStatusRegister, APUTriangleChannel, NTSC_CPU_FREQUENCY,
+  APUStatusRegister, APUSynthChannel, APUTriangleChannel, NTSC_CPU_FREQUENCY,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct APU {
   pub pulse1: APUPulseChannel,
   pub pulse2: APUPulseChannel,
@@ -21,9 +23,9 @@ pub struct APU {
 }
 
 impl Default for APU {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl APU {
@@ -41,16 +43,20 @@ impl APU {
     }
   }
 
-  pub fn tick(nes: &mut NES) -> bool {
+  pub fn tick(
+    apu: &mut APU,
+    apu_sender: &Sender<SynthCommand<APUSynthChannel>>,
+    cpu_cycle_count: u64,
+  ) -> bool {
     let mut quarter_frame = false;
     let mut half_frame = false;
     let mut irq_set = false;
 
-    if nes.apu.cycle_count % 3 == 0 {
-      nes.apu.triangle.sequencer.tick(
-        nes.apu.status.triangle_enable()
-          && nes.apu.triangle.linear_counter.counter > 0
-          && nes.apu.triangle.length_counter.counter > 0,
+    if apu.cycle_count % 3 == 0 {
+      apu.triangle.sequencer.tick(
+        apu.status.triangle_enable()
+          && apu.triangle.linear_counter.counter > 0
+          && apu.triangle.length_counter.counter > 0,
         |sequence| {
           // this represents a step in the 15 -> 0, 0 -> 15 sequence
           (sequence + 1) % 32
@@ -58,11 +64,11 @@ impl APU {
       );
     }
 
-    if nes.apu.cycle_count % 6 == 0 {
-      nes.apu.frame_cycle_count += 1;
+    if apu.cycle_count % 6 == 0 {
+      apu.frame_cycle_count += 1;
 
-      match nes.apu.frame_counter.sequencer_mode() {
-        APUSequencerMode::FourStep => match nes.apu.frame_cycle_count {
+      match apu.frame_counter.sequencer_mode() {
+        APUSequencerMode::FourStep => match apu.frame_cycle_count {
           3729 => quarter_frame = true,
           7457 => {
             quarter_frame = true;
@@ -72,14 +78,14 @@ impl APU {
           14916 => {
             quarter_frame = true;
             half_frame = true;
-            nes.apu.frame_cycle_count = 0;
-            if !nes.apu.frame_counter.interrupt_inhibit() {
+            apu.frame_cycle_count = 0;
+            if !apu.frame_counter.interrupt_inhibit() {
               irq_set = true;
             }
           }
           _ => {}
         },
-        APUSequencerMode::FiveStep => match nes.apu.frame_cycle_count {
+        APUSequencerMode::FiveStep => match apu.frame_cycle_count {
           3729 => quarter_frame = true,
           7457 => {
             quarter_frame = true;
@@ -90,7 +96,7 @@ impl APU {
           18641 => {
             quarter_frame = true;
             half_frame = true;
-            nes.apu.frame_cycle_count = 0;
+            apu.frame_cycle_count = 0;
           }
           _ => {}
         },
@@ -98,55 +104,52 @@ impl APU {
 
       if quarter_frame {
         // volume envelope adjust
-        for envelope in [&mut nes.apu.pulse1.envelope, &mut nes.apu.pulse2.envelope] {
+        for envelope in [&mut apu.pulse1.envelope, &mut apu.pulse2.envelope] {
           envelope.tick();
         }
-        nes.apu.triangle.linear_counter.tick();
+        apu.triangle.linear_counter.tick();
       }
 
       if half_frame {
         // note length and sweep adjust
         for length_counter in [
-          &mut nes.apu.pulse1.length_counter,
-          &mut nes.apu.pulse2.length_counter,
-          &mut nes.apu.triangle.length_counter,
+          &mut apu.pulse1.length_counter,
+          &mut apu.pulse2.length_counter,
+          &mut apu.triangle.length_counter,
         ] {
           length_counter.tick();
         }
       }
 
-      nes
-        .apu
+      apu
         .pulse1
         .sequencer
-        .tick(nes.apu.status.pulse1_enable(), |sequence| {
+        .tick(apu.status.pulse1_enable(), |sequence| {
           ((sequence & 0x0001) << 7) | ((sequence & 0x00fe) >> 1)
         });
 
-      nes
-        .apu
+      apu
         .pulse2
         .sequencer
-        .tick(nes.apu.status.pulse1_enable(), |sequence| {
+        .tick(apu.status.pulse1_enable(), |sequence| {
           ((sequence & 0x0001) << 7) | ((sequence & 0x00fe) >> 1)
         });
 
-      let new_state = APUState::capture(&nes.apu);
-      let time_since_start =
-        Duration::from_secs_f32(nes.cpu_cycle_count as f32 / NTSC_CPU_FREQUENCY);
+      let new_state = APUState::capture(&apu);
+      let time_since_start = Duration::from_secs_f32(cpu_cycle_count as f32 / NTSC_CPU_FREQUENCY);
 
-      let commands = if let Some(prev_state) = &nes.apu.prev_state {
+      let commands = if let Some(prev_state) = &apu.prev_state {
         prev_state.diff_commands(&new_state, time_since_start)
       } else {
         new_state.commands(time_since_start)
       };
       for command in commands {
-        nes.apu_sender.send_blocking(command).unwrap();
+        apu_sender.send_blocking(command).unwrap();
       }
-      nes.apu.prev_state = Some(new_state);
+      apu.prev_state = Some(new_state);
     }
 
-    nes.apu.cycle_count += 1;
+    apu.cycle_count += 1;
 
     irq_set
   }

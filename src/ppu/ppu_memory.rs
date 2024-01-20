@@ -1,19 +1,46 @@
-use crate::{
-  bus::{Bus, RwHandle},
-  cartridge::CartridgeMirroring,
-};
+use std::fmt::Debug;
+
+use dyn_clone::DynClone;
+
+use crate::{bus::Bus, cartridge::CartridgeMirroring};
 
 use super::PPUMaskRegister;
 
-pub struct PPUMemory<'a> {
+pub trait GetMirroringFn: DynClone + Send + Sync {
+  fn get_mirroring(&self) -> CartridgeMirroring;
+}
+
+impl<F: Fn() -> CartridgeMirroring> GetMirroringFn for F
+where
+  F: DynClone + Send + Sync,
+{
+  fn get_mirroring(&self) -> CartridgeMirroring {
+    (self)()
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct PPUMemory {
   pub mask: PPUMaskRegister,
-  pub palette_ram: RwHandle<'a, [u8; 32]>,
-  pub name_tables: RwHandle<'a, [[u8; 1024]; 2]>,
-  pub pattern_tables: RwHandle<'a, [[u8; 4096]; 2]>,
+  pub palette_ram: [u8; 32],
+  pub name_tables: [[u8; 1024]; 4],
+  pub pattern_tables: [[u8; 4096]; 2],
   pub mirroring: CartridgeMirroring,
 }
 
-impl Bus<u16> for PPUMemory<'_> {
+impl PPUMemory {
+  pub fn new(mirroring: CartridgeMirroring) -> Self {
+    Self {
+      mask: PPUMaskRegister::from(0),
+      mirroring,
+      name_tables: [[0; 1024]; 4],
+      pattern_tables: [[0; 4096]; 2],
+      palette_ram: [0; 32],
+    }
+  }
+}
+
+impl Bus<u16> for PPUMemory {
   fn try_read_readonly(&self, addr: u16) -> Option<u8> {
     let addr = addr & 0x3fff;
 
@@ -77,11 +104,10 @@ impl Bus<u16> for PPUMemory<'_> {
     let addr = addr & 0x3fff;
 
     if addr < 0x2000 {
-      let pattern_tables = self.pattern_tables.try_mut().unwrap();
-      pattern_tables[(addr as usize & 0x1000) >> 12][addr as usize & 0x0fff] = value;
+      self.pattern_tables[(addr as usize & 0x1000) >> 12][addr as usize & 0x0fff] = value;
     } else if addr < 0x3f00 {
       let addr = addr & 0x0fff;
-      let name_tables = self.name_tables.try_mut().unwrap();
+      let mut name_tables = self.name_tables;
 
       match self.mirroring {
         CartridgeMirroring::Horizontal => {
@@ -130,7 +156,7 @@ impl Bus<u16> for PPUMemory<'_> {
         0x001c => 0x000c,
         _ => addr,
       };
-      let palette_ram = self.palette_ram.try_mut().unwrap();
+      let mut palette_ram = self.palette_ram;
       palette_ram[addr as usize] = value;
     }
   }

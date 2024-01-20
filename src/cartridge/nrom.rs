@@ -1,42 +1,29 @@
-use std::sync::{Arc, RwLock};
-
 use crate::{
-  bus::{BusInterceptor, InterceptorResult},
   cpu::CPUBus,
   nes::INESRom,
-  ppu::PPUMemory,
+  ppu::{PPUCPUBus, PPUMemory},
 };
 
-use super::{Cartridge, CartridgeMirroring, CartridgeState};
+use super::{
+  bus_interceptor::{BusInterceptor, InterceptorResult},
+  Mapper,
+};
 
 #[derive(Debug, Clone)]
-pub struct NROMState {
-  pub chr_rom: [u8; 8 * 1024],
-  pub prg_ram: [u8; 8 * 1024],
+pub struct NROMCPUBusInterceptor {
+  prg_ram: [u8; 8 * 1024],
+  prg_rom: [u8; 32 * 1024],
+  bus: CPUBus<NROMPPUMemoryInterceptor>,
 }
 
-impl NROMState {
-  fn new(chr_rom: [u8; 8 * 1024]) -> Self {
-    Self {
-      chr_rom,
-      prg_ram: [0; 8 * 1024],
-    }
-  }
-}
+impl BusInterceptor<u16> for NROMCPUBusInterceptor {
+  type BusType = CPUBus<NROMPPUMemoryInterceptor>;
 
-impl CartridgeState for NROMState {}
-
-struct NROMCPUBusInterceptor<'a> {
-  cartridge: &'a NROM,
-  bus: CPUBus<'a>,
-}
-
-impl<'a> BusInterceptor<'a, u16> for NROMCPUBusInterceptor<'a> {
-  fn bus(&self) -> &dyn crate::bus::Bus<u16> {
+  fn get_inner(&self) -> &CPUBus<NROMPPUMemoryInterceptor> {
     &self.bus
   }
 
-  fn bus_mut(&mut self) -> &mut dyn crate::bus::Bus<u16> {
+  fn get_inner_mut(&mut self) -> &mut CPUBus<NROMPPUMemoryInterceptor> {
     &mut self.bus
   }
 
@@ -44,10 +31,9 @@ impl<'a> BusInterceptor<'a, u16> for NROMCPUBusInterceptor<'a> {
     if addr < 0x6000 {
       InterceptorResult::NotIntercepted
     } else if addr < 0x8000 {
-      let state = self.cartridge.state.read().unwrap();
-      InterceptorResult::Intercepted(Some(state.prg_ram[usize::from(addr) % (8 * 1024)]))
+      InterceptorResult::Intercepted(Some(self.prg_ram[usize::from(addr) % (8 * 1024)]))
     } else {
-      InterceptorResult::Intercepted(Some(self.cartridge.prg_rom[usize::from(addr - 0x8000)]))
+      InterceptorResult::Intercepted(Some(self.prg_rom[usize::from(addr - 0x8000)]))
     }
   }
 
@@ -55,8 +41,7 @@ impl<'a> BusInterceptor<'a, u16> for NROMCPUBusInterceptor<'a> {
     if addr < 0x6000 {
       InterceptorResult::NotIntercepted
     } else if addr < 0x8000 {
-      let mut state = self.cartridge.state.write().unwrap();
-      state.prg_ram[usize::from(addr) % (8 * 1024)] = value;
+      self.prg_ram[usize::from(addr) % (8 * 1024)] = value;
       InterceptorResult::Intercepted(())
     } else {
       // can't write to rom
@@ -65,24 +50,26 @@ impl<'a> BusInterceptor<'a, u16> for NROMCPUBusInterceptor<'a> {
   }
 }
 
-struct NROMPPUMemoryInterceptor<'a> {
-  cartridge: &'a NROM,
-  bus: PPUMemory<'a>,
+#[derive(Debug, Clone)]
+pub struct NROMPPUMemoryInterceptor {
+  chr_rom: [u8; 8 * 1024],
+  bus: PPUMemory,
 }
 
-impl<'a> BusInterceptor<'a, u16> for NROMPPUMemoryInterceptor<'a> {
-  fn bus(&self) -> &dyn crate::bus::Bus<u16> {
+impl BusInterceptor<u16> for NROMPPUMemoryInterceptor {
+  type BusType = PPUMemory;
+
+  fn get_inner(&self) -> &PPUMemory {
     &self.bus
   }
 
-  fn bus_mut(&mut self) -> &mut dyn crate::bus::Bus<u16> {
+  fn get_inner_mut(&mut self) -> &mut PPUMemory {
     &mut self.bus
   }
 
   fn intercept_read_readonly(&self, addr: u16) -> InterceptorResult<Option<u8>> {
     if addr < 0x2000 {
-      let state = self.cartridge.state.read().unwrap();
-      InterceptorResult::Intercepted(Some(state.chr_rom[usize::from(addr)]))
+      InterceptorResult::Intercepted(Some(self.chr_rom[usize::from(addr)]))
     } else {
       InterceptorResult::NotIntercepted
     }
@@ -90,8 +77,7 @@ impl<'a> BusInterceptor<'a, u16> for NROMPPUMemoryInterceptor<'a> {
 
   fn intercept_write(&mut self, addr: u16, value: u8) -> InterceptorResult<()> {
     if addr < 0x2000 {
-      let mut state = self.cartridge.state.write().unwrap();
-      state.chr_rom[usize::from(addr)] = value;
+      self.chr_rom[usize::from(addr)] = value;
       InterceptorResult::Intercepted(())
     } else {
       InterceptorResult::NotIntercepted
@@ -102,12 +88,13 @@ impl<'a> BusInterceptor<'a, u16> for NROMPPUMemoryInterceptor<'a> {
 #[derive(Debug, Clone)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct NROM {
-  pub prg_rom: [u8; 32 * 1024],
-  pub state: Arc<RwLock<NROMState>>,
-  mirroring: CartridgeMirroring,
+  cpu_bus: NROMCPUBusInterceptor,
 }
 
-impl Cartridge for NROM {
+impl Mapper for NROM {
+  type CPUBusInterceptor = NROMCPUBusInterceptor;
+  type PPUMemoryInterceptor = NROMPPUMemoryInterceptor;
+
   fn from_ines_rom(rom: INESRom) -> Self {
     let mut prg_rom: [u8; 32 * 1024] = [0; 32 * 1024];
     if !rom.prg_data.is_empty() {
@@ -123,55 +110,25 @@ impl Cartridge for NROM {
       }
     }
 
-    Self {
+    let ppu_memory = NROMPPUMemoryInterceptor {
+      chr_rom,
+      bus: PPUMemory::new(rom.initial_mirroring()),
+    };
+
+    let cpu_bus = NROMCPUBusInterceptor {
+      prg_ram: [0; 8 * 1024],
       prg_rom,
-      state: Arc::new(RwLock::new(NROMState::new(chr_rom))),
-      mirroring: if rom.vertical_mirroring {
-        CartridgeMirroring::Vertical
-      } else {
-        CartridgeMirroring::Horizontal
-      },
-    }
+      bus: CPUBus::new(PPUCPUBus::new(Box::new(ppu_memory))),
+    };
+
+    Self { cpu_bus }
   }
 
-  fn cpu_bus_interceptor<'a>(&'a self, bus: CPUBus<'a>) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(NROMCPUBusInterceptor {
-      cartridge: self,
-      bus,
-    })
+  fn cpu_bus(&self) -> &Self::CPUBusInterceptor {
+    &self.cpu_bus
   }
 
-  fn cpu_bus_interceptor_mut<'a>(
-    &'a self,
-    bus: CPUBus<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(NROMCPUBusInterceptor {
-      cartridge: self,
-      bus,
-    })
-  }
-
-  fn ppu_memory_interceptor<'a>(
-    &'a self,
-    bus: PPUMemory<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(NROMPPUMemoryInterceptor {
-      cartridge: self,
-      bus,
-    })
-  }
-
-  fn ppu_memory_interceptor_mut<'a>(
-    &'a self,
-    bus: PPUMemory<'a>,
-  ) -> Box<dyn BusInterceptor<'a, u16> + 'a> {
-    Box::new(NROMPPUMemoryInterceptor {
-      cartridge: self,
-      bus,
-    })
-  }
-
-  fn get_mirroring(&self) -> CartridgeMirroring {
-    self.mirroring
+  fn cpu_bus_mut(&mut self) -> &mut Self::CPUBusInterceptor {
+    &mut self.cpu_bus
   }
 }

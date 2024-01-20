@@ -3,7 +3,7 @@ use super::{
   APUNoiseLengthCounterLoadRegister, APUNoiseModePeriodRegister, APUSequencer,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct APUNoiseChannel {
   pub control: APUNoiseControlRegister,
   pub mode_period: APUNoiseModePeriodRegister,
@@ -16,9 +16,9 @@ pub struct APUNoiseChannel {
 }
 
 impl Default for APUNoiseChannel {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl APUNoiseChannel {

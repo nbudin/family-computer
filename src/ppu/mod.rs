@@ -37,10 +37,10 @@ mod tests {
       machine.execute_frame(&mut fake_pixbuf);
 
       // blargg's ppu tests write their result to 0x00f8 in work ram
-      result = machine.cpu_bus().read_readonly(0x00f8);
+      result = machine.state.cartridge.cpu_bus().read_readonly(0x00f8);
 
       // wait for a successful result or time out
-      if result == 1 || machine.ppu.frame_count > 5 * 60 {
+      if result == 1 || machine.state.ppu.frame_count > 5 * 60 {
         break;
       }
     }

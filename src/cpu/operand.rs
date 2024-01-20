@@ -1,6 +1,6 @@
-use crate::bus::{Bus, BusInterceptor};
+use crate::bus::Bus;
 
-use super::CPU;
+use super::{CPUBusTrait, CPU};
 
 #[derive(Debug, Clone)]
 pub enum Operand {
@@ -19,11 +19,7 @@ pub enum Operand {
 }
 
 impl Operand {
-  pub fn get_addr(
-    &self,
-    cpu: &CPU,
-    cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>,
-  ) -> (u16, bool) {
+  pub fn get_addr(&self, cpu: &CPU, cpu_bus: &mut dyn CPUBusTrait) -> (u16, bool) {
     let mut page_boundary_crossed = false;
     let result_addr = match self {
       Operand::ZeroPage(addr) => u16::from(*addr),
@@ -68,11 +64,7 @@ impl Operand {
     (result_addr, page_boundary_crossed)
   }
 
-  pub fn get_addr_readonly(
-    &self,
-    cpu: &CPU,
-    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
-  ) -> (u16, bool) {
+  pub fn get_addr_readonly(&self, cpu: &CPU, cpu_bus: &dyn CPUBusTrait) -> (u16, bool) {
     let mut page_boundary_crossed = false;
     let result_addr = match self {
       Operand::ZeroPage(addr) => u16::from(*addr),
@@ -118,7 +110,7 @@ impl Operand {
     (result_addr, page_boundary_crossed)
   }
 
-  pub fn eval(&self, cpu: &CPU, cpu_bus: &mut Box<dyn BusInterceptor<'_, u16> + '_>) -> (u8, bool) {
+  pub fn eval(&self, cpu: &CPU, cpu_bus: &mut dyn CPUBusTrait) -> (u8, bool) {
     match self {
       Operand::Accumulator => (cpu.a, false),
       Operand::Immediate(value) => (*value, false),
@@ -129,11 +121,7 @@ impl Operand {
     }
   }
 
-  pub fn eval_readonly(
-    &self,
-    cpu: &CPU,
-    cpu_bus: &Box<dyn BusInterceptor<'_, u16> + '_>,
-  ) -> (u8, bool) {
+  pub fn eval_readonly(&self, cpu: &CPU, cpu_bus: &dyn CPUBusTrait) -> (u8, bool) {
     match self {
       Operand::Accumulator => (cpu.a, false),
       Operand::Immediate(value) => (*value, false),
