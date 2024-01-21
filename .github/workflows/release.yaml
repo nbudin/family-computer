@@ -17,12 +17,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - if: ${{ matrix.arch == 'aarch64' }}
+        run: sudo dpkg --add-architecture arm64
+      - if: ${{ matrix.arch == 'aarch64' }}
+        run: sudo apt-get update && sudo apt-get install libasound2-dev:arm64 build-essential:arm64
+      - if: ${{ matrix.arch == 'x86_64' }}
+        run: sudo apt-get update && sudo apt-get install libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: rustup target add ${{ matrix.arch }}-unknown-linux-gnu
       - uses: taiki-e/install-action@cargo-make
-      - run: sudo apt-get update && sudo apt-get install libasound2-dev
       - run: CARGO_MAKE_RUST_TARGET_ARCH=${{ matrix.arch }} cargo make build
+      - name: "Troubleshooting: list all files in target"
+        run: find ./target
       - run: mv target/${{ matrix.arch }}-unknown-linux-gnu/release/family-computer ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}
       - run: gzip ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}
       - name: upload Linux ${{ matrix.arch }} release artifact
