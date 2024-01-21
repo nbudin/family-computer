@@ -80,8 +80,8 @@ jobs:
         run: rustup target add ${{ matrix.platform.cargo_target }}
       - uses: taiki-e/install-action@cargo-make
       - run: ${{ matrix.platform.build_command }}
-      - name: "Troubleshooting: list all files in target"
-        run: find ./target
+      - name: "Troubleshooting: list all files"
+        run: find .
       - if: ${{ matrix.platform.os == 'macos' }}
         name: Notarize app
         run: |
