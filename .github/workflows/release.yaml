@@ -4,52 +4,47 @@ on:
     types: [published]
 
 jobs:
-  build_linux:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+  build:
     strategy:
       matrix:
-        arch:
-          - x86_64
-          - aarch64
+        platform:
+          - os: linux
+            dpkg_arch: amd64
+            cargo_target: x86_64-unknown-linux-gnu
+            build_command: CARGO_MAKE_RUST_TARGET_TRIPLE=x86_64-unknown-linux-gnu cargo make build
+            build_artifact: target/x86_64-unknown-linux-gnu/release/family-computer
+            executable_filename: family-computer
+            release_upload_prefix: family-computer-linux-x86_64
+            runs_on: ubuntu-latest
+          # - os: linux
+          #   dpkg_arch: arm64
+          #   cargo_target: aarch64-unknown-linux-gnu
+          #   build_command: CARGO_MAKE_RUST_TARGET_TRIPLE=aarch64-unknown-linux-gnu cargo make build
+          #   build_artifact: target/aarch64-unknown-linux-gnu/release/family-computer
+          #   executable_filename: family-computer
+          #   release_upload_prefix: family-computer-linux-aarch64
+          #   runs_on: ubuntu-latest
+          - os: macos
+            build_command: KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db cargo make build-package
+            build_artifact: target/universal-apple-darwin/release/Family Computer.app
+            executable_filename: Family Computer.app
+            release_upload_prefix: family-computer-macos-universal
+            runs_on: self-hosted
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - if: ${{ matrix.arch == 'aarch64' }}
-        uses: ryankurte/action-apt@v0.4.0
-        with:
-          arch: arm64
-          packages: "libasound2-dev:arm64 build-essential:arm64"
-      - if: ${{ matrix.arch == 'x86_64' }}
-        uses: ryankurte/action-apt@v0.4.0
-        with:
-          arch: amd64
-          packages: "libasound2-dev"
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: rustup target add ${{ matrix.arch }}-unknown-linux-gnu
-      - uses: taiki-e/install-action@cargo-make
-      - run: CARGO_MAKE_RUST_TARGET_ARCH=${{ matrix.arch }} cargo make build
-      - name: "Troubleshooting: list all files in target"
-        run: find ./target
-      - run: mv target/${{ matrix.arch }}-unknown-linux-gnu/release/family-computer ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}
-      - run: gzip ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}
-      - name: upload Linux ${{ matrix.arch }} release artifact
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: gh release upload ${{ github.event.release.tag_name }} ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}.gz
-
-  build_mac:
-    runs-on: self-hosted
+    runs-on: ${{ matrix.platform.runs_on }}
     permissions:
       contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Install the Apple certificate and provisioning profile
+      - if: ${{ matrix.platform.os == 'linux' }}
+        uses: ryankurte/action-apt@v0.4.0
+        with:
+          arch: ${{ matrix.platform.dpkg_arch }}
+          packages: "libasound2-dev:${{ matrix.platform.dpkg_arch }} build-essential:${{ matrix.platform.dpkg_arch }}"
+      - if: ${{ matrix.platform.os == 'macos' }}
+        name: Install the Apple certificate and provisioning profile
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -77,19 +72,26 @@ jobs:
 
           # set up notarization profile
           xcrun notarytool store-credentials "notarytool-profile" --keychain $KEYCHAIN_PATH --apple-id "$NOTARIZATION_APPLE_ID" --team-id "$NOTARIZATION_TEAM_ID" --password "$NOTARIZATION_PASSWORD"
+
       - uses: dtolnay/rust-toolchain@stable
-      - run: rustup target add aarch64-apple-darwin
-      - run: rustup target add x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - if: ${{ matrix.platform.os == 'macos' }}
+        run: rustup target add aarch64-apple-darwin && rustup target add x86_64-apple-darwin
+      - if: ${{ matrix.platform.os != 'macos' }}
+        run: rustup target add ${{ matrix.platform.cargo_target }}
       - uses: taiki-e/install-action@cargo-make
-      - run: KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db cargo make build-package
-      - name: Notarize app
+      - run: ${{ matrix.platform.build_command }}
+      - name: "Troubleshooting: list all files in target"
+        run: find ./target
+      - if: ${{ matrix.platform.os == 'macos' }}
+        name: Notarize app
         run: |
           ditto -c -k --keepParent "target/universal-apple-darwin/release/Family Computer.app" "notarization.zip"
           xcrun notarytool submit "notarization.zip" --keychain $RUNNER_TEMP/app-signing.keychain-db --keychain-profile "notarytool-profile" --wait
           xcrun stapler staple "target/universal-apple-darwin/release/Family Computer.app"
-      - run: mv target/universal-apple-darwin/release/Family\ Computer.app .
-      - run: zip -r FamilyComputer-mac-universal-${{ github.event.release.tag_name }}.zip Family\ Computer.app
-      - name: upload macOS release artifact
+      - run: mv "${{ matrix.platform.build_artifact }}" "./${{ matrix.platform.executable_filename }}"
+      - run: zip -r ${{ matrix.platform.release_upload_prefix }}-${{ github.event.release.tag_name }}.zip "${{ matrix.platform.executable_filename }}"
+      - name: upload release artifact
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: gh release upload ${{ github.event.release.tag_name }} FamilyComputer-mac-universal-${{ github.event.release.tag_name }}.zip
+        run: gh release upload ${{ github.event.release.tag_name }} ${{ matrix.platform.release_upload_prefix }}-${{ github.event.release.tag_name }}.zip
