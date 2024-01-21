@@ -18,11 +18,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - if: ${{ matrix.arch == 'aarch64' }}
-        run: sudo dpkg --add-architecture arm64
-      - if: ${{ matrix.arch == 'aarch64' }}
-        run: sudo apt-get update && sudo apt-get install libasound2-dev:arm64 build-essential:arm64
+        uses: ryankurte/action-apt@v0.4.0
+        with:
+          arch: arm64
+          packages: "libasound2-dev:arm64 build-essential:arm64"
       - if: ${{ matrix.arch == 'x86_64' }}
-        run: sudo apt-get update && sudo apt-get install libasound2-dev
+        uses: ryankurte/action-apt@v0.4.0
+        with:
+          arch: amd64
+          packages: "libasound2-dev"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: rustup target add ${{ matrix.arch }}-unknown-linux-gnu
