@@ -4,6 +4,31 @@ on:
     types: [published]
 
 jobs:
+  build_linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        arch:
+          - x86_64
+          - aarch64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: rustup target add ${{ matrix.arch }}-linux-gnu
+      - uses: taiki-e/install-action@cargo-make
+      - run: CARGO_MAKE_RUST_TARGET_ARCH=${{ matrix.arch }} cargo make build
+      - run: mv target/${{ matrix.arch }}-linux-gnu/release/family-computer ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}
+      - run: gzip ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}
+      - name: upload Linux ${{ matrix.arch }} release artifact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ github.event.release.tag_name }} ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}.gz
+
   build_mac:
     runs-on: self-hosted
     permissions:
@@ -51,8 +76,8 @@ jobs:
           xcrun notarytool submit "notarization.zip" --keychain $RUNNER_TEMP/app-signing.keychain-db --keychain-profile "notarytool-profile" --wait
           xcrun stapler staple "target/universal-apple-darwin/release/Family Computer.app"
       - run: mv target/universal-apple-darwin/release/Family\ Computer.app .
-      - run: zip -r Family\ Computer.zip Family\ Computer.app
+      - run: zip -r FamilyComputer-mac-universal-${{ github.event.release.tag_name }}.zip Family\ Computer.app
       - name: upload macOS release artifact
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: gh release upload ${{ github.event.release.tag_name }} "Family Computer.zip"
+        run: gh release upload ${{ github.event.release.tag_name }} FamilyComputer-mac-universal-${{ github.event.release.tag_name }}.zip
