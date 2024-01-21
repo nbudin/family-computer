@@ -12,7 +12,7 @@ jobs:
             dpkg_arch: amd64
             cargo_target: x86_64-unknown-linux-gnu
             build_command: CARGO_MAKE_RUST_TARGET_TRIPLE=x86_64-unknown-linux-gnu cargo make build
-            build_artifact: target/x86_64-unknown-linux-gnu/release/family-computer
+            build_artifact: target/release/family-computer
             executable_filename: family-computer
             release_upload_prefix: family-computer-linux-x86_64
             runs_on: ubuntu-latest
@@ -80,8 +80,6 @@ jobs:
         run: rustup target add ${{ matrix.platform.cargo_target }}
       - uses: taiki-e/install-action@cargo-make
       - run: ${{ matrix.platform.build_command }}
-      - name: "Troubleshooting: list all files"
-        run: find .
       - if: ${{ matrix.platform.os == 'macos' }}
         name: Notarize app
         run: |
