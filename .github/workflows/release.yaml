@@ -21,7 +21,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: rustup target add ${{ matrix.arch }}-unknown-linux-gnu
       - uses: taiki-e/install-action@cargo-make
-      - run: sudo apt-get update && sudo apt-get insatll libasound2-dev
+      - run: sudo apt-get update && sudo apt-get install libasound2-dev
       - run: CARGO_MAKE_RUST_TARGET_ARCH=${{ matrix.arch }} cargo make build
       - run: mv target/${{ matrix.arch }}-unknown-linux-gnu/release/family-computer ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}
       - run: gzip ./family-computer-linux-${{ matrix.arch }}-${{ github.event.release.tag_name }}
