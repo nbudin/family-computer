@@ -8,7 +8,7 @@ use super::{
 };
 use crate::cartridge::bus_interceptor::BusInterceptor;
 
-pub struct PPUCPUBus<I: BusInterceptor<u16, BusType = PPUMemory> + ?Sized> {
+pub struct PPUCPUBus<I: BusInterceptor<u16, BusType = PPUMemory> + PPUMemoryTrait + ?Sized> {
   pub status: PPUStatusRegister,
   pub control: PPUControlRegister,
   pub data_buffer: u8,
@@ -39,7 +39,7 @@ pub trait PPUCPUBusTrait {
   fn oam_mut(&mut self) -> &mut [PPUOAMEntry; 64];
 }
 
-impl<I: BusInterceptor<u16, BusType = PPUMemory>> Debug for PPUCPUBus<I> {
+impl<I: BusInterceptor<u16, BusType = PPUMemory> + PPUMemoryTrait> Debug for PPUCPUBus<I> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("PPUCPUBus")
       .field("status", &self.status)
@@ -58,7 +58,7 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory>> Debug for PPUCPUBus<I> {
   }
 }
 
-impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> Clone for PPUCPUBus<I> {
+impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone + PPUMemoryTrait> Clone for PPUCPUBus<I> {
   fn clone(&self) -> Self {
     Self {
       status: self.status,
@@ -76,7 +76,7 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> Clone for PPUCPUBus<I>
   }
 }
 
-impl<I: BusInterceptor<u16, BusType = PPUMemory>> PPUCPUBus<I> {
+impl<I: BusInterceptor<u16, BusType = PPUMemory> + PPUMemoryTrait> PPUCPUBus<I> {
   pub fn new(ppu_memory: Box<I>) -> Self {
     Self {
       status: PPUStatusRegister::from(0),
@@ -94,7 +94,7 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory>> PPUCPUBus<I> {
   }
 }
 
-impl<I: BusInterceptor<u16, BusType = PPUMemory>> PPUCPUBusTrait for PPUCPUBus<I> {
+impl<I: BusInterceptor<u16, BusType = PPUMemory> + PPUMemoryTrait> PPUCPUBusTrait for PPUCPUBus<I> {
   fn get_status_register_read_this_tick(&self) -> bool {
     self.status_register_read_this_tick
   }
@@ -108,7 +108,7 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory>> PPUCPUBusTrait for PPUCPUBus<I
   }
 
   fn ppu_memory_mut(&mut self) -> &mut dyn PPUMemoryTrait {
-    self.ppu_memory.get_inner_mut()
+    self.ppu_memory.as_mut()
   }
 
   fn control_mut(&mut self) -> &mut PPUControlRegister {
@@ -144,7 +144,9 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory>> PPUCPUBusTrait for PPUCPUBus<I
   }
 }
 
-impl<I: BusInterceptor<u16, BusType = PPUMemory>> Bus<PPURegister> for PPUCPUBus<I> {
+impl<I: BusInterceptor<u16, BusType = PPUMemory> + PPUMemoryTrait> Bus<PPURegister>
+  for PPUCPUBus<I>
+{
   fn try_read_readonly(&self, addr: PPURegister) -> Option<u8> {
     match addr {
       PPURegister::PPUSTATUS => {

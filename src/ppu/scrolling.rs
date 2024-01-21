@@ -112,8 +112,7 @@ impl PPU {
         self.load_background_shifters();
 
         let addr = 0x2000 | (u16::from(*ppu_cpu_bus.vram_addr_mut()) & 0x0fff);
-        let next_tile_id = ppu_cpu_bus.ppu_memory_mut().read(addr);
-        self.bg_next_tile_id = next_tile_id;
+        self.bg_next_tile_id = ppu_cpu_bus.ppu_memory_mut().read(addr);
       }
       2 => {
         let addr = 0x23c0
@@ -136,16 +135,14 @@ impl PPU {
         let addr = (u16::from(ppu_cpu_bus.control_mut().pattern_background()) << 12)
           + ((self.bg_next_tile_id as u16) << 4)
           + (ppu_cpu_bus.vram_addr_mut().fine_y() as u16);
-        let bg_next_tile_low = ppu_cpu_bus.ppu_memory_mut().read(addr);
-        self.bg_next_tile_low = bg_next_tile_low;
+        self.bg_next_tile_low = ppu_cpu_bus.ppu_memory_mut().read(addr);
       }
       6 => {
         let addr = (u16::from(ppu_cpu_bus.control_mut().pattern_background()) << 12)
           + ((self.bg_next_tile_id as u16) << 4)
           + (ppu_cpu_bus.vram_addr_mut().fine_y() as u16)
           + 8;
-        let bg_next_tile_high = ppu_cpu_bus.ppu_memory_mut().read(addr);
-        self.bg_next_tile_high = bg_next_tile_high;
+        self.bg_next_tile_high = ppu_cpu_bus.ppu_memory_mut().read(addr);
       }
       7 => {
         self.increment_scroll_x(ppu_cpu_bus);

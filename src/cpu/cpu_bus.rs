@@ -4,7 +4,7 @@ use crate::{
   bus::Bus,
   cartridge::bus_interceptor::BusInterceptor,
   nes::{Controller, ControllerButton, DMA},
-  ppu::{PPUCPUBus, PPUCPUBusTrait, PPUMemory, PPURegister},
+  ppu::{PPUCPUBus, PPUCPUBusTrait, PPUMemory, PPUMemoryTrait, PPURegister},
 };
 
 pub trait CPUBusTrait: Bus<u16> {
@@ -26,7 +26,7 @@ pub trait CPUBusTrait: Bus<u16> {
 }
 
 #[derive(Debug, Clone)]
-pub struct CPUBus<I: BusInterceptor<u16, BusType = PPUMemory>> {
+pub struct CPUBus<I: BusInterceptor<u16, BusType = PPUMemory> + PPUMemoryTrait> {
   pub work_ram: [u8; 2048],
   pub controllers: [Controller; 2],
   pub ppu_cpu_bus: Box<PPUCPUBus<I>>,
@@ -34,7 +34,7 @@ pub struct CPUBus<I: BusInterceptor<u16, BusType = PPUMemory>> {
   pub apu: APU,
 }
 
-impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> CPUBus<I> {
+impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone + PPUMemoryTrait> CPUBus<I> {
   pub fn new(ppu_cpu_bus: PPUCPUBus<I>) -> Self {
     Self {
       work_ram: [0; 2048],
@@ -46,7 +46,9 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> CPUBus<I> {
   }
 }
 
-impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> CPUBusTrait for CPUBus<I> {
+impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone + PPUMemoryTrait> CPUBusTrait
+  for CPUBus<I>
+{
   fn maybe_tick_dma(&mut self, ppu_cycle_count: u64) -> bool {
     if self.dma.transfer {
       if self.dma.dummy {
@@ -94,7 +96,7 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> CPUBusTrait for CPUBus
   }
 }
 
-impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone> Bus<u16> for CPUBus<I> {
+impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone + PPUMemoryTrait> Bus<u16> for CPUBus<I> {
   fn try_read_readonly(&self, addr: u16) -> Option<u8> {
     if addr < 0x2000 {
       let actual_address = addr % 0x800;

@@ -4,7 +4,7 @@ use self::{bus_interceptor::BusInterceptor, cnrom::CNROM, mmc1::MMC1, nrom::NROM
 use crate::{
   cpu::{CPUBus, CPUBusTrait},
   nes::INESRom,
-  ppu::{PPUCPUBusTrait, PPUMemory},
+  ppu::{PPUCPUBusTrait, PPUMemory, PPUMemoryTrait},
 };
 use std::fmt::Debug;
 
@@ -24,8 +24,9 @@ pub enum CartridgeMirroring {
 }
 
 pub trait Mapper: Debug + DynClone {
-  type CPUBusInterceptor: BusInterceptor<u16, BusType = CPUBus<Self::PPUMemoryInterceptor>>;
-  type PPUMemoryInterceptor: BusInterceptor<u16, BusType = PPUMemory>;
+  type CPUBusInterceptor: BusInterceptor<u16, BusType = CPUBus<Self::PPUMemoryInterceptor>>
+    + CPUBusTrait;
+  type PPUMemoryInterceptor: BusInterceptor<u16, BusType = PPUMemory> + PPUMemoryTrait;
 
   fn from_ines_rom(rom: INESRom) -> Self
   where

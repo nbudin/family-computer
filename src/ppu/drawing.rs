@@ -68,10 +68,9 @@ impl PPU {
       }
     };
 
-    let color =
-      PALETTE[PPU::get_palette_color(palette as u16, pixel as u16, ppu_cpu_bus.ppu_memory_mut())
-        as usize
-        % PALETTE.len()];
+    let palette_index =
+      PPU::get_palette_color(palette as u16, pixel as u16, ppu_cpu_bus.ppu_memory_mut()) as usize;
+    let color = PALETTE[palette_index % PALETTE.len()];
 
     let x = self.cycle - 1;
     let y = self.scanline;

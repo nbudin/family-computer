@@ -2,7 +2,10 @@ use std::fmt::Debug;
 
 use dyn_clone::DynClone;
 
-use crate::{bus::Bus, cartridge::CartridgeMirroring};
+use crate::{
+  bus::Bus,
+  cartridge::{bus_interceptor::BusInterceptor, CartridgeMirroring},
+};
 
 use super::PPUMaskRegister;
 
@@ -21,6 +24,17 @@ where
 
 pub trait PPUMemoryTrait: Bus<u16> {
   fn mask(&self) -> PPUMaskRegister;
+  fn name_tables(&self) -> &[[u8; 1024]; 4];
+}
+
+impl<I: BusInterceptor<u16, BusType = PPUMemory>> PPUMemoryTrait for I {
+  fn mask(&self) -> PPUMaskRegister {
+    self.get_inner().mask()
+  }
+
+  fn name_tables(&self) -> &[[u8; 1024]; 4] {
+    self.get_inner().name_tables()
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +61,10 @@ impl PPUMemory {
 impl PPUMemoryTrait for PPUMemory {
   fn mask(&self) -> PPUMaskRegister {
     self.mask.clone()
+  }
+
+  fn name_tables(&self) -> &[[u8; 1024]; 4] {
+    &self.name_tables
   }
 }
 
@@ -114,6 +132,7 @@ impl Bus<u16> for PPUMemory {
     let addr = addr & 0x3fff;
 
     if addr < 0x2000 {
+      println!("{:04X} <- {:02X}", addr, value);
       self.pattern_tables[(addr as usize & 0x1000) >> 12][addr as usize & 0x0fff] = value;
     } else if addr < 0x3f00 {
       let addr = addr & 0x0fff;
