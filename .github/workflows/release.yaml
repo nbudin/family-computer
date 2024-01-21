@@ -39,10 +39,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - if: ${{ matrix.platform.os == 'linux' }}
-        uses: ryankurte/action-apt@v0.4.0
-        with:
-          arch: ${{ matrix.platform.dpkg_arch }}
-          packages: "libasound2-dev:${{ matrix.platform.dpkg_arch }} build-essential:${{ matrix.platform.dpkg_arch }}"
+        run: sudo dpkg --add-architecture ${{ matrix.platform.dpkg_arch }}
+      - if: ${{ matrix.platform.os == 'linux' }}
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev:${{ matrix.platform.dpkg_arch }} build-essential:${{ matrix.platform.dpkg_arch }}
       - if: ${{ matrix.platform.os == 'macos' }}
         name: Install the Apple certificate and provisioning profile
         env:
