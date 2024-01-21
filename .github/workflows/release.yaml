@@ -48,7 +48,7 @@ jobs:
       - name: Notarize app
         run: |
           ditto -c -k --keepParent "target/universal-apple-darwin/release/Family Computer.app" "notarization.zip"
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db xcrun notarytool submit "notarization.zip" --keychain $KEYCHAIN_PATH --keychain-profile "notarytool-profile" --wait
+          xcrun notarytool submit "notarization.zip" --keychain $RUNNER_TEMP/app-signing.keychain-db --keychain-profile "notarytool-profile" --wait
           xcrun stapler staple "target/universal-apple-darwin/release/Family Computer.app"
       - run: mv target/universal-apple-darwin/release/Family\ Computer.app .
       - run: zip -r Family\ Computer.zip Family\ Computer.app
