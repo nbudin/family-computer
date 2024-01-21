@@ -36,10 +36,10 @@ jobs:
           # import certificate to keychain
           security import DeveloperIDG2CA.cer -k $KEYCHAIN_PATH
           security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          # security list-keychain -d user -s $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
 
           # set up notarization profile
-          xcrun notarytool store-credentials "notarytool-profile" --apple-id "$NOTARIZATION_APPLE_ID" --team-id "$NOTARIZATION_TEAM_ID" --password "$NOTARIZATION_PASSWORD"
+          xcrun notarytool store-credentials "notarytool-profile" --keychain $KEYCHAIN_PATH --apple-id "$NOTARIZATION_APPLE_ID" --team-id "$NOTARIZATION_TEAM_ID" --password "$NOTARIZATION_PASSWORD"
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add aarch64-apple-darwin
       - run: rustup target add x86_64-apple-darwin
@@ -48,7 +48,7 @@ jobs:
       - name: Notarize app
         run: |
           ditto -c -k --keepParent "target/universal-apple-darwin/release/Family Computer.app" "notarization.zip"
-          xcrun notarytool submit "notarization.zip" --keychain-profile "notarytool-profile" --wait
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db xcrun notarytool submit "notarization.zip" --keychain $KEYCHAIN_PATH --keychain-profile "notarytool-profile" --wait
           xcrun stapler staple "target/universal-apple-darwin/release/Family Computer.app"
       - run: mv target/universal-apple-darwin/release/Family\ Computer.app .
       - run: zip -r Family\ Computer.zip Family\ Computer.app
