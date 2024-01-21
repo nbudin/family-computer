@@ -36,7 +36,7 @@ jobs:
           # import certificate to keychain
           security import DeveloperIDG2CA.cer -k $KEYCHAIN_PATH
           security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
+          # security list-keychain -d user -s $KEYCHAIN_PATH
 
           # set up notarization profile
           xcrun notarytool store-credentials "notarytool-profile" --apple-id "$NOTARIZATION_APPLE_ID" --team-id "$NOTARIZATION_TEAM_ID" --password "$NOTARIZATION_PASSWORD"
