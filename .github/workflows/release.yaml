@@ -11,9 +11,10 @@ jobs:
           - os: windows
             cargo_target: x86_64-pc-windows-msvc
             build_command: cargo make build
-            runs_on: windows-latest
+            build_artifact: target/release/family-computer.exe
             executable_filename: family-computer.exe
             release_upload_prefix: family-computer-windows-x64
+            runs_on: windows-latest
           - os: linux
             dpkg_arch: amd64
             cargo_target: x86_64-unknown-linux-gnu
@@ -92,7 +93,10 @@ jobs:
           ditto -c -k --keepParent "target/universal-apple-darwin/release/Family Computer.app" "notarization.zip"
           xcrun notarytool submit "notarization.zip" --keychain $RUNNER_TEMP/app-signing.keychain-db --keychain-profile "notarytool-profile" --wait
           xcrun stapler staple "target/universal-apple-darwin/release/Family Computer.app"
-      - run: mv "${{ matrix.platform.build_artifact }}" "./${{ matrix.platform.executable_filename }}"
+      - if: ${{ matrix.platform.os != 'windows' }}
+        run: mv "${{ matrix.platform.build_artifact }}" "./${{ matrix.platform.executable_filename }}"
+      - if: ${{ matrix.platform.os == 'windows' }}
+        run: move "${{ matrix.platform.build_artifact }}" ".\${{ matrix.platform.executable_filename }}"
       - run: zip -r ${{ matrix.platform.release_upload_prefix }}-${{ github.event.release.tag_name }}.zip "${{ matrix.platform.executable_filename }}"
       - name: upload release artifact
         env:
