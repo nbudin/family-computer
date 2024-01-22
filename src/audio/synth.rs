@@ -18,6 +18,8 @@ use smol::channel::{Sender, TryRecvError};
 
 use super::{audio_channel::AudioChannel, stream_setup::StreamSpawner};
 
+const MIXER_AMPLITUDE: f32 = 15.0;
+
 #[derive(Debug)]
 pub enum SynthCommand<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
   ChannelCommand(ChannelIdentifier, Box<dyn Any + Send + Sync>, Duration),
@@ -69,7 +71,7 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
       let mut command_queue: VecDeque<SynthCommand<ChannelIdentifier>> =
         VecDeque::with_capacity(32);
       let mut last_channel_recv: Option<StreamInstant> = None;
-      let receive_interval = Duration::from_millis(2);
+      let receive_interval = Duration::from_millis(1);
       let shutdown = Arc::new(AtomicBool::new(false));
       let shutdown_sender = shutdown.clone();
       let control_thread = std::thread::current();
@@ -108,11 +110,14 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
             let mut commands_to_run_now: Vec<SynthCommand<ChannelIdentifier>> = Vec::new();
 
-            if let Some(start_time) = start_time {
-              let playback_time_since_start = timestamp
+            let playback_time_since_start = start_time.map(|start_time| {
+              timestamp
                 .playback
                 .duration_since(&start_time)
-                .unwrap_or_default();
+                .unwrap_or_default()
+            });
+
+            if let Some(playback_time_since_start) = playback_time_since_start {
               loop {
                 let command = command_queue.pop_front();
 
@@ -147,6 +152,7 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
                 .collect(),
               num_channels,
               sample_rate,
+              playback_time_since_start.unwrap_or_default(),
             )
           },
           err_fn,
@@ -172,25 +178,27 @@ fn process_frame<SampleType>(
   mut channels: Vec<&mut Box<dyn AudioChannel>>,
   num_channels: usize,
   sample_rate: f32,
+  timestamp: Duration,
 ) where
   SampleType: Sample
     + FromSample<f32>
     + core::iter::Sum<SampleType>
     + core::ops::Add<SampleType, Output = SampleType>,
 {
-  let amplitude_divisor = channels.len() as f32;
   for frame in output.chunks_mut(num_channels) {
     let value: SampleType = SampleType::EQUILIBRIUM
       + channels
         .iter_mut()
         .map(|channel| {
-          SampleType::from_sample(channel.get_next_sample(sample_rate) / amplitude_divisor)
+          let channel_amplitude = channel.mix_amplitude();
+          let f32_value = channel.get_next_sample(sample_rate, timestamp) * channel_amplitude;
+          SampleType::from_sample(f32_value * MIXER_AMPLITUDE)
         })
         .sum::<SampleType>();
 
-    // copy the same value to all channels
+    // copy the same value to all output channels
     for sample in frame.iter_mut() {
-      *sample = value;
+      *sample = value
     }
   }
 }

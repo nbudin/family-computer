@@ -1,14 +1,19 @@
 use std::{fmt::Debug, time::Duration};
 
-use crate::{apu::APUTriangleOscillatorCommand, audio::synth::SynthCommand};
+use tinyvec::ArrayVec;
 
-use super::{APUPulseChannel, APUPulseOscillatorCommand, APUSynthChannel, APUTriangleChannel, APU};
+use crate::audio::synth::SynthCommand;
+
+use super::{
+  APUNoiseChannelState, APUPulseChannelState, APUSynthChannel, APUTriangleChannelState, APU,
+};
 
 #[derive(Debug, Clone)]
 pub struct APUState {
   pulse1: APUChannelState,
   pulse2: APUChannelState,
   triangle: APUChannelState,
+  noise: APUChannelState,
 }
 
 impl APUState {
@@ -17,6 +22,7 @@ impl APUState {
       pulse1: APUChannelState::capture(apu, APUSynthChannel::Pulse1),
       pulse2: APUChannelState::capture(apu, APUSynthChannel::Pulse2),
       triangle: APUChannelState::capture(apu, APUSynthChannel::Triangle),
+      noise: APUChannelState::capture(apu, APUSynthChannel::Noise),
     }
   }
 
@@ -27,6 +33,7 @@ impl APUState {
       .into_iter()
       .chain(self.pulse2.commands(time_since_start))
       .chain(self.triangle.commands(time_since_start))
+      .chain(self.noise.commands(time_since_start))
       .collect()
   }
 
@@ -45,6 +52,7 @@ impl APUState {
           .triangle
           .diff_commands(&other.triangle, time_since_start),
       )
+      .chain(self.noise.diff_commands(&other.noise, time_since_start))
       .collect()
   }
 }
@@ -54,6 +62,7 @@ pub enum APUChannelState {
   Pulse1(APUPulseChannelState),
   Pulse2(APUPulseChannelState),
   Triangle(APUTriangleChannelState),
+  Noise(APUNoiseChannelState),
 }
 
 impl APUChannelState {
@@ -68,6 +77,7 @@ impl APUChannelState {
       APUSynthChannel::Triangle => {
         APUChannelState::Triangle(APUTriangleChannelState::capture(&apu.triangle))
       }
+      APUSynthChannel::Noise => APUChannelState::Noise(APUNoiseChannelState::capture(&apu.noise)),
     }
   }
 
@@ -96,6 +106,13 @@ impl APUChannelState {
             Box::new(command),
             time_since_start,
           )
+        })
+        .collect(),
+      APUChannelState::Noise(state) => state
+        .commands()
+        .into_iter()
+        .map(|command| {
+          SynthCommand::ChannelCommand(APUSynthChannel::Noise, Box::new(command), time_since_start)
         })
         .collect(),
     }
@@ -158,111 +175,55 @@ impl APUChannelState {
           panic!("Cannot diff Triangle channel against {:?}", other);
         }
       }
+      APUChannelState::Noise(before) => {
+        if let APUChannelState::Noise(after) = other {
+          before
+            .diff_commands(after)
+            .into_iter()
+            .map(|command| {
+              SynthCommand::ChannelCommand(
+                APUSynthChannel::Noise,
+                Box::new(command),
+                time_since_start,
+              )
+            })
+            .collect()
+        } else {
+          panic!("Cannot diff Noise channel against {:?}", other);
+        }
+      }
     }
   }
 }
 
+pub const COMMAND_BUFFER_SIZE: usize = 8;
+pub type CommandBuffer<C> = ArrayVec<[<C as APUChannelStateTrait>::Command; COMMAND_BUFFER_SIZE]>;
+
 pub trait APUChannelStateTrait: Debug {
   type Channel;
-  type Command;
+  type Command: Eq + Default;
 
   fn capture(channel: &Self::Channel) -> Self
   where
     Self: Sized;
-  fn commands(&self) -> Vec<Self::Command>;
-  fn diff_commands(&self, after: &Self) -> Vec<Self::Command>;
-}
+  fn commands(&self) -> CommandBuffer<Self>;
 
-#[derive(Debug, Clone)]
-pub struct APUPulseChannelState {
-  duty_cycle: f32,
-  amplitude: f32,
-  frequency: f32,
-  enabled: bool,
-}
+  fn diff_commands(&self, after: &Self) -> CommandBuffer<Self> {
+    let before_commands = self.commands();
+    let after_commands = after.commands();
 
-impl APUChannelStateTrait for APUPulseChannelState {
-  type Channel = APUPulseChannel;
-  type Command = APUPulseOscillatorCommand;
-
-  fn capture(channel: &Self::Channel) -> Self {
-    APUPulseChannelState {
-      duty_cycle: channel.duty_cycle_float(),
-      amplitude: channel.amplitude(),
-      frequency: channel.frequency(),
-      enabled: channel.enabled,
-    }
-  }
-
-  fn commands(&self) -> Vec<Self::Command> {
-    vec![
-      APUPulseOscillatorCommand::SetDutyCycle(self.duty_cycle),
-      APUPulseOscillatorCommand::SetAmplitude(self.amplitude),
-      APUPulseOscillatorCommand::SetFrequency(self.frequency),
-      APUPulseOscillatorCommand::SetEnabled(self.enabled),
-    ]
-  }
-
-  fn diff_commands(&self, after: &APUPulseChannelState) -> Vec<APUPulseOscillatorCommand> {
-    let mut commands: Vec<APUPulseOscillatorCommand> = vec![];
-
-    if self.duty_cycle != after.duty_cycle {
-      commands.push(APUPulseOscillatorCommand::SetDutyCycle(after.duty_cycle))
-    }
-
-    if self.amplitude != after.amplitude {
-      commands.push(APUPulseOscillatorCommand::SetAmplitude(after.amplitude))
-    }
-
-    if self.frequency != after.frequency {
-      commands.push(APUPulseOscillatorCommand::SetFrequency(after.frequency))
-    }
-
-    if self.enabled != after.enabled {
-      commands.push(APUPulseOscillatorCommand::SetEnabled(after.enabled))
-    }
-
-    commands
-  }
-}
-
-#[derive(Debug, Clone)]
-pub struct APUTriangleChannelState {
-  frequency: f32,
-  producing_sound: bool,
-}
-
-impl APUChannelStateTrait for APUTriangleChannelState {
-  type Channel = APUTriangleChannel;
-  type Command = APUTriangleOscillatorCommand;
-
-  fn capture(channel: &Self::Channel) -> Self {
-    APUTriangleChannelState {
-      frequency: channel.timer.triangle_frequency(),
-      producing_sound: channel.producing_sound(),
-    }
-  }
-
-  fn commands(&self) -> Vec<Self::Command> {
-    vec![
-      APUTriangleOscillatorCommand::SetEnabled(self.producing_sound),
-      APUTriangleOscillatorCommand::SetFrequency(self.frequency),
-    ]
-  }
-
-  fn diff_commands(&self, after: &APUTriangleChannelState) -> Vec<APUTriangleOscillatorCommand> {
-    let mut commands: Vec<APUTriangleOscillatorCommand> = vec![];
-
-    if self.frequency != after.frequency {
-      commands.push(APUTriangleOscillatorCommand::SetFrequency(after.frequency))
-    }
-
-    if self.producing_sound != after.producing_sound {
-      commands.push(APUTriangleOscillatorCommand::SetEnabled(
-        after.producing_sound,
-      ))
-    }
-
-    commands
+    before_commands
+      .into_iter()
+      .zip(after_commands.into_iter())
+      .filter_map(
+        |(before, after)| {
+          if before == after {
+            None
+          } else {
+            Some(after)
+          }
+        },
+      )
+      .collect()
   }
 }

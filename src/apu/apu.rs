@@ -5,8 +5,9 @@ use smol::channel::Sender;
 use crate::{audio::synth::SynthCommand, bus::Bus};
 
 use super::{
-  APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel, APUSequencerMode, APUState,
-  APUStatusRegister, APUSynthChannel, APUTriangleChannel, NTSC_CPU_FREQUENCY,
+  timing::APUTimerInstant, APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel,
+  APUSequencerMode, APUState, APUStatusRegister, APUSynthChannel, APUTriangleChannel,
+  NTSC_CPU_FREQUENCY,
 };
 
 #[derive(Debug, Clone)]
@@ -19,7 +20,6 @@ pub struct APU {
   pub status: APUStatusRegister,
   pub frame_counter: APUFrameCounterRegister,
   pub cycle_count: u64,
-  pub frame_cycle_count: u64,
   prev_state: Option<APUState>,
 }
 
@@ -39,7 +39,6 @@ impl APU {
       status: 0.into(),
       frame_counter: 0.into(),
       cycle_count: 0,
-      frame_cycle_count: 0,
       prev_state: None,
     }
   }
@@ -49,92 +48,21 @@ impl APU {
     apu_sender: &Sender<SynthCommand<APUSynthChannel>>,
     cpu_cycle_count: u64,
   ) -> bool {
-    let mut quarter_frame = false;
-    let mut half_frame = false;
     let mut irq_set = false;
 
-    if apu.cycle_count % 3 == 0 {
-      apu.triangle.sequencer.tick(
-        apu.status.triangle_enable()
-          && apu.triangle.linear_counter.counter > 0
-          && apu.triangle.length_counter.counter > 0,
-        |sequence| {
-          // this represents a step in the 15 -> 0, 0 -> 15 sequence
-          (sequence + 1) % 32
-        },
-      );
-    }
+    if cpu_cycle_count % 6 == 0 {
+      let instant = APUTimerInstant {
+        cycle_count: cpu_cycle_count,
+        sequencer_mode: apu.frame_counter.sequencer_mode(),
+      };
 
-    if apu.cycle_count % 6 == 0 {
-      apu.frame_cycle_count += 1;
-
-      match apu.frame_counter.sequencer_mode() {
-        APUSequencerMode::FourStep => match apu.frame_cycle_count {
-          3729 => quarter_frame = true,
-          7457 => {
-            quarter_frame = true;
-            half_frame = true;
-          }
-          11186 => quarter_frame = true,
-          14916 => {
-            quarter_frame = true;
-            half_frame = true;
-            apu.frame_cycle_count = 0;
-            if !apu.frame_counter.interrupt_inhibit() {
-              irq_set = true;
-            }
-          }
-          _ => {}
-        },
-        APUSequencerMode::FiveStep => match apu.frame_cycle_count {
-          3729 => quarter_frame = true,
-          7457 => {
-            quarter_frame = true;
-            half_frame = true;
-          }
-          11186 => quarter_frame = true,
-          14916 => {}
-          18641 => {
-            quarter_frame = true;
-            half_frame = true;
-            apu.frame_cycle_count = 0;
-          }
-          _ => {}
-        },
-      }
-
-      if quarter_frame {
-        // volume envelope adjust
-        for envelope in [&mut apu.pulse1.envelope, &mut apu.pulse2.envelope] {
-          envelope.tick();
-        }
-        apu.triangle.linear_counter.tick();
-      }
-
-      if half_frame {
-        // note length and sweep adjust
-        for length_counter in [
-          &mut apu.pulse1.length_counter,
-          &mut apu.pulse2.length_counter,
-          &mut apu.triangle.length_counter,
-        ] {
-          length_counter.tick();
+      if instant.frame_normalized().cycle_count == instant.cycles_per_frame() - 1 {
+        if instant.sequencer_mode == APUSequencerMode::FourStep
+          && !apu.frame_counter.interrupt_inhibit()
+        {
+          irq_set = true;
         }
       }
-
-      apu
-        .pulse1
-        .sequencer
-        .tick(apu.status.pulse1_enable(), |sequence| {
-          ((sequence & 0x0001) << 7) | ((sequence & 0x00fe) >> 1)
-        });
-
-      apu
-        .pulse2
-        .sequencer
-        .tick(apu.status.pulse1_enable(), |sequence| {
-          ((sequence & 0x0001) << 7) | ((sequence & 0x00fe) >> 1)
-        });
 
       let new_state = APUState::capture(apu);
       let time_since_start = Duration::from_secs_f32(cpu_cycle_count as f32 / NTSC_CPU_FREQUENCY);
@@ -160,6 +88,15 @@ impl APU {
     self.pulse1.enabled = value.pulse1_enable();
     self.pulse2.enabled = value.pulse2_enable();
     self.triangle.enabled = value.triangle_enable();
+    self.noise.enabled = value.noise_enable();
+  }
+
+  fn write_frame_counter_byte(&mut self, value: APUFrameCounterRegister) {
+    self.frame_counter = value;
+    self.pulse1.sequencer_mode = value.sequencer_mode();
+    self.pulse2.sequencer_mode = value.sequencer_mode();
+    self.triangle.sequencer_mode = value.sequencer_mode();
+    self.noise.sequencer_mode = value.sequencer_mode();
   }
 }
 
@@ -174,11 +111,11 @@ impl Bus<u16> for APU {
   fn write(&mut self, addr: u16, value: u8) {
     match addr {
       0x4000 => self.pulse1.write_control(value.into()),
-      0x4001 => self.pulse1.sweep = value.into(),
+      0x4001 => self.pulse1.write_sweep(value.into()),
       0x4002 => self.pulse1.write_timer_byte(value, false),
       0x4003 => self.pulse1.write_timer_byte(value, true),
       0x4004 => self.pulse2.write_control(value.into()),
-      0x4005 => self.pulse2.sweep = value.into(),
+      0x4005 => self.pulse2.write_sweep(value.into()),
       0x4006 => self.pulse2.write_timer_byte(value, false),
       0x4007 => self.pulse2.write_timer_byte(value, true),
       0x4008 => self.triangle.write_control(value.into()),
@@ -188,6 +125,7 @@ impl Bus<u16> for APU {
       0x400e => self.noise.write_mode_period(value.into()),
       0x400f => self.noise.write_length_counter_load(value.into()),
       0x4015 => self.write_status_byte(value.into()),
+      0x4017 => self.write_frame_counter_byte(value.into()),
       _ => {}
     }
   }

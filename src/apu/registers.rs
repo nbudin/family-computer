@@ -4,6 +4,7 @@ pub const NTSC_CPU_FREQUENCY: f32 = 1.789773 * 1_000_000.0;
 pub const MAX_PULSE_FREQUENCY: f32 = 13_000.0;
 
 #[bitfield(u8)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct APUPulseControlRegister {
   #[bits(4)]
   pub volume_envelope_divider_period: u8,
@@ -38,6 +39,7 @@ impl APUPulseControlRegister {
 }
 
 #[bitfield(u8)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct APUPulseSweepRegister {
   #[bits(3)]
   pub shift_count: u8,
@@ -48,6 +50,7 @@ pub struct APUPulseSweepRegister {
 }
 
 #[bitfield(u16)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct APUTimerRegister {
   #[bits(11)]
   pub timer: u16,
@@ -66,6 +69,7 @@ impl APUTimerRegister {
 }
 
 #[bitfield(u8)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct APUTriangleControlRegister {
   #[bits(7)]
   pub counter_reload_value: u8,
@@ -73,6 +77,7 @@ pub struct APUTriangleControlRegister {
 }
 
 #[bitfield(u8)]
+#[derive(PartialEq)]
 pub struct APUNoiseControlRegister {
   #[bits(4)]
   pub volume_envelope_divider_period: u8,
@@ -111,9 +116,10 @@ pub struct APUStatusRegister {
   pub dmc_interrupt: bool,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
 pub enum APUSequencerMode {
+  #[default]
   FourStep = 0,
   FiveStep = 1,
 }

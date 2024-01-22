@@ -1,12 +1,13 @@
 use crate::audio::{audio_channel::AudioChannel, stream_setup::StreamSpawner, synth::Synth};
 
-use super::{APUPulseOscillator, APUTriangleOscillator};
+use super::{APUNoiseOscillator, APUPulseOscillator, APUTriangleOscillator};
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub enum APUSynthChannel {
   Pulse1,
   Pulse2,
   Triangle,
+  Noise,
 }
 
 pub struct APUSynth {
@@ -14,9 +15,9 @@ pub struct APUSynth {
 }
 
 impl Default for APUSynth {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl APUSynth {
@@ -26,15 +27,19 @@ impl APUSynth {
         channels: [
           (
             APUSynthChannel::Pulse1,
-            Box::new(APUPulseOscillator::new()) as Box<dyn AudioChannel>,
+            Box::new(APUPulseOscillator::new(true)) as Box<dyn AudioChannel>,
           ),
           (
             APUSynthChannel::Pulse2,
-            Box::new(APUPulseOscillator::new()) as Box<dyn AudioChannel>,
+            Box::new(APUPulseOscillator::new(false)) as Box<dyn AudioChannel>,
           ),
           (
             APUSynthChannel::Triangle,
             Box::new(APUTriangleOscillator::new()) as Box<dyn AudioChannel>,
+          ),
+          (
+            APUSynthChannel::Noise,
+            Box::new(APUNoiseOscillator::new()) as Box<dyn AudioChannel>,
           ),
         ]
         .into_iter()
