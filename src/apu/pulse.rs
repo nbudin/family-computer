@@ -6,9 +6,9 @@ use tinyvec::array_vec;
 use crate::{apu::COMMAND_BUFFER_SIZE, audio::audio_channel::AudioChannel};
 
 use super::{
-  envelope::APUEnvelope, timing::APUOscillatorTimer, APUChannelStateTrait, APULengthCounter,
-  APUPulseControlRegister, APUPulseSweepRegister, APUSequencer, APUSequencerMode, APUTimerRegister,
-  CommandBuffer, MAX_PULSE_FREQUENCY,
+  envelope::APUEnvelope, sweep::APUSweep, timing::APUOscillatorTimer, APUChannelStateTrait,
+  APULengthCounter, APUPulseControlRegister, APUPulseSweepRegister, APUSequencer, APUSequencerMode,
+  APUTimerRegister, CommandBuffer, MAX_PULSE_FREQUENCY,
 };
 
 const TWO_PI: f32 = PI * 2.0;
@@ -18,6 +18,7 @@ pub enum APUPulseOscillatorCommand {
   #[default]
   NoOp,
   WriteControl(APUPulseControlRegister),
+  WriteSweep(APUPulseSweepRegister),
   WriteTimerRegister(APUTimerRegister),
   SetEnabled(bool),
   LoadLengthCounterByIndex(u8),
@@ -34,10 +35,11 @@ pub struct APUPulseOscillator {
   length_counter: APULengthCounter,
   timer: APUOscillatorTimer,
   timer_register: APUTimerRegister,
+  sweep: APUSweep,
 }
 
 impl APUPulseOscillator {
-  pub fn new() -> Self {
+  pub fn new(ones_complement_negate: bool) -> Self {
     Self {
       harmonics: 20,
       enabled: false,
@@ -47,13 +49,14 @@ impl APUPulseOscillator {
       length_counter: APULengthCounter::new(),
       timer: APUOscillatorTimer::new(),
       timer_register: APUTimerRegister::from(0),
+      sweep: APUSweep::new(ones_complement_negate),
     }
   }
 
   fn amplitude(&self) -> f32 {
     if self.length_counter.counter > 0
       // && self.sequencer.timer >= 8
-      // && self.sweep.enabled()
+      // && self.sweep.enabled
       && self.envelope.output > 2
       && self.timer_register.pulse_frequency() < MAX_PULSE_FREQUENCY
     {
@@ -91,17 +94,18 @@ impl AudioChannel for APUPulseOscillator {
     }
     if self.timer.is_half_frame(sample_rate) {
       self.length_counter.tick();
+      self.sweep.tick(&self.timer_register);
     }
 
     let mut wave1: f32 = 0.0;
     let mut wave2: f32 = 0.0;
     let p = self.duty_cycle * TWO_PI;
     let current_sample_index = self.timer.current_sample_index(sample_rate);
+    let frequency = self.sweep.output.pulse_frequency();
 
     for n in 1..(self.harmonics + 1) {
       let n = n as f32;
-      let sample_index_radians =
-        (n * self.timer_register.pulse_frequency() * TWO_PI * current_sample_index) / sample_rate;
+      let sample_index_radians = (n * frequency * TWO_PI * current_sample_index) / sample_rate;
       wave1 += -sinfull(sample_index_radians) / n;
       wave2 += -sinfull(sample_index_radians - (p * n)) / n;
     }
@@ -124,6 +128,13 @@ impl AudioChannel for APUPulseOscillator {
         self.envelope.loop_flag = value.length_counter_halt();
         self.envelope.enabled = !value.constant_volume_envelope();
         self.envelope.volume = value.volume_envelope_divider_period() as u16;
+      }
+      APUPulseOscillatorCommand::WriteSweep(value) => {
+        self.sweep.enabled = value.enabled();
+        self.sweep.divider_period = value.divider_period();
+        self.sweep.negate = value.negate();
+        self.sweep.shift_count = value.shift_count();
+        self.sweep.reload_flag = true;
       }
       APUPulseOscillatorCommand::WriteTimerRegister(value) => {
         self.timer_register = value.clone();
@@ -171,6 +182,10 @@ impl APUPulseChannel {
     self.control = value;
   }
 
+  pub fn write_sweep(&mut self, value: APUPulseSweepRegister) {
+    self.sweep = value;
+  }
+
   pub fn write_timer_byte(&mut self, value: u8, high_byte: bool) {
     let new_value = if high_byte {
       APUTimerRegister::from((u16::from(self.timer) & 0x00ff) | (((value & 0b111) as u16) << 8))
@@ -193,6 +208,7 @@ pub struct APUPulseChannelState {
   length_counter_load_index: u8,
   sequencer_mode: APUSequencerMode,
   timer_register: APUTimerRegister,
+  sweep: APUPulseSweepRegister,
 }
 
 impl APUChannelStateTrait for APUPulseChannelState {
@@ -206,6 +222,7 @@ impl APUChannelStateTrait for APUPulseChannelState {
       length_counter_load_index: channel.length_counter_load_index,
       sequencer_mode: channel.sequencer_mode.clone(),
       timer_register: channel.timer.clone(),
+      sweep: channel.sweep.clone(),
     }
   }
 
@@ -213,6 +230,7 @@ impl APUChannelStateTrait for APUPulseChannelState {
     array_vec!([Self::Command; COMMAND_BUFFER_SIZE] =>
       APUPulseOscillatorCommand::SetEnabled(self.enabled),
       APUPulseOscillatorCommand::WriteControl(self.control),
+      APUPulseOscillatorCommand::WriteSweep(self.sweep),
       APUPulseOscillatorCommand::WriteTimerRegister(self.timer_register),
       APUPulseOscillatorCommand::LoadLengthCounterByIndex(self.length_counter_load_index),
       APUPulseOscillatorCommand::SetAPUSequencerMode(self.sequencer_mode.clone()),

@@ -70,7 +70,7 @@ impl AudioChannel for APUNoiseOscillator {
 
     let cycles = self.timer.cpu_cycle_range(sample_rate);
 
-    for _i in cycles {
+    for _i in cycles.cycle_count.start..cycles.cycle_count.end {
       self.shift_register.tick(self.enabled, |value| {
         let feedback_bit = if self.mode { 6 } else { 1 };
         let feedback = (value & 0b1) ^ ((value & (1 << feedback_bit)) >> feedback_bit);

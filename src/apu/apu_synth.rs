@@ -27,11 +27,11 @@ impl APUSynth {
         channels: [
           (
             APUSynthChannel::Pulse1,
-            Box::new(APUPulseOscillator::new()) as Box<dyn AudioChannel>,
+            Box::new(APUPulseOscillator::new(true)) as Box<dyn AudioChannel>,
           ),
           (
             APUSynthChannel::Pulse2,
-            Box::new(APUPulseOscillator::new()) as Box<dyn AudioChannel>,
+            Box::new(APUPulseOscillator::new(false)) as Box<dyn AudioChannel>,
           ),
           (
             APUSynthChannel::Triangle,

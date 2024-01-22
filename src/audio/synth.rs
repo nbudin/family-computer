@@ -71,7 +71,7 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
       let mut command_queue: VecDeque<SynthCommand<ChannelIdentifier>> =
         VecDeque::with_capacity(32);
       let mut last_channel_recv: Option<StreamInstant> = None;
-      let receive_interval = Duration::from_millis(2);
+      let receive_interval = Duration::from_millis(1);
       let shutdown = Arc::new(AtomicBool::new(false));
       let shutdown_sender = shutdown.clone();
       let control_thread = std::thread::current();

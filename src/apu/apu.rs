@@ -5,8 +5,9 @@ use smol::channel::Sender;
 use crate::{audio::synth::SynthCommand, bus::Bus};
 
 use super::{
-  APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel, APUSequencerMode, APUState,
-  APUStatusRegister, APUSynthChannel, APUTriangleChannel, NTSC_CPU_FREQUENCY,
+  timing::APUTimerInstant, APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel,
+  APUSequencerMode, APUState, APUStatusRegister, APUSynthChannel, APUTriangleChannel,
+  NTSC_CPU_FREQUENCY,
 };
 
 #[derive(Debug, Clone)]
@@ -19,7 +20,6 @@ pub struct APU {
   pub status: APUStatusRegister,
   pub frame_counter: APUFrameCounterRegister,
   pub cycle_count: u64,
-  pub frame_cycle_count: u64,
   prev_state: Option<APUState>,
 }
 
@@ -39,7 +39,6 @@ impl APU {
       status: 0.into(),
       frame_counter: 0.into(),
       cycle_count: 0,
-      frame_cycle_count: 0,
       prev_state: None,
     }
   }
@@ -51,25 +50,18 @@ impl APU {
   ) -> bool {
     let mut irq_set = false;
 
-    if apu.cycle_count % 6 == 0 {
-      apu.frame_cycle_count += 1;
+    if cpu_cycle_count % 6 == 0 {
+      let instant = APUTimerInstant {
+        cycle_count: cpu_cycle_count,
+        sequencer_mode: apu.frame_counter.sequencer_mode(),
+      };
 
-      match apu.frame_counter.sequencer_mode() {
-        APUSequencerMode::FourStep => match apu.frame_cycle_count {
-          14916 => {
-            apu.frame_cycle_count = 0;
-            if !apu.frame_counter.interrupt_inhibit() {
-              irq_set = true;
-            }
-          }
-          _ => {}
-        },
-        APUSequencerMode::FiveStep => match apu.frame_cycle_count {
-          18641 => {
-            apu.frame_cycle_count = 0;
-          }
-          _ => {}
-        },
+      if instant.frame_normalized().cycle_count == instant.cycles_per_frame() - 1 {
+        if instant.sequencer_mode == APUSequencerMode::FourStep
+          && !apu.frame_counter.interrupt_inhibit()
+        {
+          irq_set = true;
+        }
       }
 
       let new_state = APUState::capture(apu);
@@ -119,11 +111,11 @@ impl Bus<u16> for APU {
   fn write(&mut self, addr: u16, value: u8) {
     match addr {
       0x4000 => self.pulse1.write_control(value.into()),
-      0x4001 => self.pulse1.sweep = value.into(),
+      0x4001 => self.pulse1.write_sweep(value.into()),
       0x4002 => self.pulse1.write_timer_byte(value, false),
       0x4003 => self.pulse1.write_timer_byte(value, true),
       0x4004 => self.pulse2.write_control(value.into()),
-      0x4005 => self.pulse2.sweep = value.into(),
+      0x4005 => self.pulse2.write_sweep(value.into()),
       0x4006 => self.pulse2.write_timer_byte(value, false),
       0x4007 => self.pulse2.write_timer_byte(value, true),
       0x4008 => self.triangle.write_control(value.into()),

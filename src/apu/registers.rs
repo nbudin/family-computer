@@ -39,6 +39,7 @@ impl APUPulseControlRegister {
 }
 
 #[bitfield(u8)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct APUPulseSweepRegister {
   #[bits(3)]
   pub shift_count: u8,
