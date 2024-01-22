@@ -74,6 +74,6 @@ script = [
   "codesign -s 'Developer ID Application: Nathaniel Budin (V2W3RME3KS)' --options runtime ${RELEASE_DIR}/Family\\ Computer.app/",
 ]
 
-[tasks.build.linux]
+[tasks.build]
 args = ["build", "--release"]
 command = "cargo"
