@@ -10,7 +10,7 @@ jobs:
         platform:
           - os: windows
             cargo_target: x86_64-pc-windows-msvc
-            build_command: CARGO_MAKE_RUST_TARGET_TRIPLE=x86_64-pc-windows-msvc cargo make build
+            build_command: cargo make build
             runs_on: windows-latest
             executable_filename: family-computer.exe
             release_upload_prefix: family-computer-windows-x64
