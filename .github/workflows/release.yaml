@@ -97,7 +97,10 @@ jobs:
         run: mv "${{ matrix.platform.build_artifact }}" "./${{ matrix.platform.executable_filename }}"
       - if: ${{ matrix.platform.os == 'windows' }}
         run: move "${{ matrix.platform.build_artifact }}" ".\${{ matrix.platform.executable_filename }}"
-      - run: zip -r ${{ matrix.platform.release_upload_prefix }}-${{ github.event.release.tag_name }}.zip "${{ matrix.platform.executable_filename }}"
+      - if: ${{ matrix.platform.os != 'windows' }}
+        run: zip -r ${{ matrix.platform.release_upload_prefix }}-${{ github.event.release.tag_name }}.zip "${{ matrix.platform.executable_filename }}"
+      - if: ${{ matrix.platform.os == 'windows' }}
+        run: tar.exe -a -c -f ${{ matrix.platform.release_upload_prefix }}-${{ github.event.release.tag_name }}.zip "${{ matrix.platform.executable_filename }}"
       - name: upload release artifact
         env:
           GITHUB_TOKEN: ${{ github.token }}
