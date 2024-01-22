@@ -1,5 +1,7 @@
 use std::{fmt::Debug, time::Duration};
 
+use tinyvec::ArrayVec;
+
 use crate::audio::synth::SynthCommand;
 
 use super::{
@@ -194,15 +196,19 @@ impl APUChannelState {
   }
 }
 
+pub const COMMAND_BUFFER_SIZE: usize = 8;
+pub type CommandBuffer<C> = ArrayVec<[<C as APUChannelStateTrait>::Command; COMMAND_BUFFER_SIZE]>;
+
 pub trait APUChannelStateTrait: Debug {
   type Channel;
-  type Command: Eq;
+  type Command: Eq + Default;
 
   fn capture(channel: &Self::Channel) -> Self
   where
     Self: Sized;
-  fn commands(&self) -> Vec<Self::Command>;
-  fn diff_commands(&self, after: &Self) -> Vec<Self::Command> {
+  fn commands(&self) -> CommandBuffer<Self>;
+
+  fn diff_commands(&self, after: &Self) -> CommandBuffer<Self> {
     let before_commands = self.commands();
     let after_commands = after.commands();
 

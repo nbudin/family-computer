@@ -1,19 +1,22 @@
 use std::{f32::consts::PI, time::Duration};
 
 use fastapprox::fast::sinfull;
+use tinyvec::array_vec;
 
-use crate::audio::audio_channel::AudioChannel;
+use crate::{apu::COMMAND_BUFFER_SIZE, audio::audio_channel::AudioChannel};
 
 use super::{
   envelope::APUEnvelope, timing::APUOscillatorTimer, APUChannelStateTrait, APULengthCounter,
   APUPulseControlRegister, APUPulseSweepRegister, APUSequencer, APUSequencerMode, APUTimerRegister,
-  MAX_PULSE_FREQUENCY,
+  CommandBuffer, MAX_PULSE_FREQUENCY,
 };
 
 const TWO_PI: f32 = PI * 2.0;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Default)]
 pub enum APUPulseOscillatorCommand {
+  #[default]
+  NoOp,
   WriteControl(APUPulseControlRegister),
   SetEnabled(bool),
   LoadLengthCounterByIndex(u8),
@@ -109,6 +112,7 @@ impl AudioChannel for APUPulseOscillator {
     println!("{:?}", command);
 
     match command.as_ref() {
+      APUPulseOscillatorCommand::NoOp => {}
       APUPulseOscillatorCommand::SetEnabled(enabled) => self.enabled = *enabled,
       APUPulseOscillatorCommand::WriteControl(value) => {
         self.duty_cycle = value.duty_cycle_float();
@@ -197,12 +201,12 @@ impl APUChannelStateTrait for APUPulseChannelState {
     }
   }
 
-  fn commands(&self) -> Vec<Self::Command> {
-    vec![
+  fn commands(&self) -> CommandBuffer<Self> {
+    array_vec!([Self::Command; COMMAND_BUFFER_SIZE] =>
       APUPulseOscillatorCommand::SetEnabled(self.enabled),
       APUPulseOscillatorCommand::WriteControl(self.control),
       APUPulseOscillatorCommand::LoadLengthCounterByIndex(self.length_counter_load_index),
       APUPulseOscillatorCommand::SetAPUSequencerMode(self.sequencer_mode.clone()),
-    ]
+    )
   }
 }

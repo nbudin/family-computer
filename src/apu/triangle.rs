@@ -1,20 +1,23 @@
 use std::{f32::consts::PI, time::Duration};
 
 use fastapprox::fast::sinfull;
+use tinyvec::array_vec;
 
-use crate::audio::audio_channel::AudioChannel;
+use crate::{apu::COMMAND_BUFFER_SIZE, audio::audio_channel::AudioChannel};
 
 use super::{
   linear_counter::APULinearCounter,
   registers::{APUTimerRegister, APUTriangleControlRegister},
   timing::APUOscillatorTimer,
-  APUChannelStateTrait, APULengthCounter, APUSequencer, APUSequencerMode,
+  APUChannelStateTrait, APULengthCounter, APUSequencer, APUSequencerMode, CommandBuffer,
 };
 
 const TWO_PI: f32 = PI * 2.0;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Default)]
 pub enum APUTriangleOscillatorCommand {
+  #[default]
+  NoOp,
   WriteControl(APUTriangleControlRegister),
   WriteTimerRegister(APUTimerRegister),
   SetEnabled(bool),
@@ -103,6 +106,7 @@ impl AudioChannel for APUTriangleOscillator {
     };
 
     match command.as_ref() {
+      APUTriangleOscillatorCommand::NoOp => {}
       APUTriangleOscillatorCommand::SetEnabled(enabled) => self.enabled = *enabled,
       APUTriangleOscillatorCommand::WriteControl(value) => {
         self.linear_counter.counter = value.counter_reload_value();
@@ -191,13 +195,13 @@ impl APUChannelStateTrait for APUTriangleChannelState {
     }
   }
 
-  fn commands(&self) -> Vec<Self::Command> {
-    vec![
+  fn commands(&self) -> CommandBuffer<Self> {
+    array_vec!([Self::Command; COMMAND_BUFFER_SIZE] =>
       APUTriangleOscillatorCommand::SetEnabled(self.enabled),
       APUTriangleOscillatorCommand::WriteControl(self.control),
       APUTriangleOscillatorCommand::WriteTimerRegister(self.timer_register),
       APUTriangleOscillatorCommand::LoadLengthCounterByIndex(self.length_counter_load_index),
       APUTriangleOscillatorCommand::SetAPUSequencerMode(self.sequencer_mode.clone()),
-    ]
+    )
   }
 }

@@ -1,17 +1,21 @@
 use std::time::Duration;
 
 use cpal::StreamInstant;
+use iced_runtime::futures::backend::default;
+use tinyvec::array_vec;
 
-use crate::audio::audio_channel::AudioChannel;
+use crate::{apu::COMMAND_BUFFER_SIZE, audio::audio_channel::AudioChannel};
 
 use super::{
   envelope::APUEnvelope, timing::APUOscillatorTimer, APUChannelStateTrait, APULengthCounter,
   APUNoiseControlRegister, APUNoiseLengthCounterLoadRegister, APUNoiseModePeriodRegister,
-  APUSequencer, APUSequencerMode,
+  APUSequencer, APUSequencerMode, CommandBuffer,
 };
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Default)]
 pub enum APUNoiseOscillatorCommand {
+  #[default]
+  NoOp,
   SetShiftRegisterReload(u16),
   SetEnabled(bool),
   SetMode(bool),
@@ -92,6 +96,7 @@ impl AudioChannel for APUNoiseOscillator {
     };
 
     match command.as_ref() {
+      APUNoiseOscillatorCommand::NoOp => {}
       APUNoiseOscillatorCommand::SetShiftRegisterReload(value) => {
         self.shift_register.reload = *value;
       }
@@ -197,8 +202,8 @@ impl APUChannelStateTrait for APUNoiseChannelState {
     }
   }
 
-  fn commands(&self) -> Vec<Self::Command> {
-    vec![
+  fn commands(&self) -> CommandBuffer<Self> {
+    array_vec!([Self::Command; COMMAND_BUFFER_SIZE] =>
       APUNoiseOscillatorCommand::SetShiftRegisterReload(self.shift_register_reload),
       APUNoiseOscillatorCommand::SetEnabled(self.enabled),
       APUNoiseOscillatorCommand::SetMode(self.mode),
@@ -209,6 +214,6 @@ impl APUChannelStateTrait for APUNoiseChannelState {
       ),
       APUNoiseOscillatorCommand::SetAPUSequencerMode(self.sequencer_mode.clone()),
       APUNoiseOscillatorCommand::LoadLengthCounterByIndex(self.length_counter_load),
-    ]
+    )
   }
 }
