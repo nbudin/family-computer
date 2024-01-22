@@ -22,9 +22,9 @@ strum = {version = "0.25.0", features = ["derive"]}
 [dev-dependencies]
 similar-asserts = "1.5.0"
 
-[profile.release]
-# lto = true
-# debug = true
+[profile.release-with-debug]
+debug = true
+inherits = "release"
 
 [package.metadata.bundle]
 identifier = "com.natbudin.family-computer"

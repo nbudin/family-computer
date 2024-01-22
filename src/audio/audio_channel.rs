@@ -1,9 +1,9 @@
-use std::any::Any;
+use std::{any::Any, time::Duration};
 
 use dyn_clone::DynClone;
 
 pub trait AudioChannel: DynClone + Send + Sync {
-  fn get_next_sample(&mut self, sample_rate: f32) -> f32;
+  fn get_next_sample(&mut self, sample_rate: f32, timestamp: Duration) -> f32;
   fn handle_command(&mut self, command: Box<dyn Any + Send + Sync>);
 }
 

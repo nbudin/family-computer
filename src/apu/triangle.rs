@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 
 use fastapprox::fast::sinfull;
 
@@ -7,50 +7,90 @@ use crate::audio::audio_channel::AudioChannel;
 use super::{
   linear_counter::APULinearCounter,
   registers::{APUTimerRegister, APUTriangleControlRegister},
-  APULengthCounter, APUSequencer,
+  timing::APUOscillatorTimer,
+  APUChannelStateTrait, APULengthCounter, APUSequencer, APUSequencerMode,
 };
 
 const TWO_PI: f32 = PI * 2.0;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum APUTriangleOscillatorCommand {
-  SetFrequency(f32),
+  WriteControl(APUTriangleControlRegister),
+  WriteTimerRegister(APUTimerRegister),
   SetEnabled(bool),
+  LoadLengthCounterByIndex(u8),
+  SetAPUSequencerMode(APUSequencerMode),
 }
 
 #[derive(Clone)]
 pub struct APUTriangleOscillator {
-  current_sample_index: f32,
-  frequency: f32,
   harmonics: usize,
   enabled: bool,
+  length_counter: APULengthCounter,
+  linear_counter: APULinearCounter,
+  sequencer: APUSequencer,
+  timer: APUOscillatorTimer,
+  timer_register: APUTimerRegister,
 }
 
 impl APUTriangleOscillator {
   pub fn new() -> Self {
     Self {
-      current_sample_index: 0.0,
-      frequency: 440.0,
       harmonics: 20,
       enabled: false,
+      length_counter: APULengthCounter::new(),
+      linear_counter: APULinearCounter::new(),
+      sequencer: APUSequencer::new(),
+      timer: APUOscillatorTimer::new(),
+      timer_register: APUTimerRegister::new(),
     }
+  }
+
+  fn frequency(&self) -> f32 {
+    self.timer_register.triangle_frequency()
   }
 }
 
 impl AudioChannel for APUTriangleOscillator {
-  fn get_next_sample(&mut self, sample_rate: f32) -> f32 {
-    self.current_sample_index = (self.current_sample_index + 1.0) % sample_rate;
+  fn get_next_sample(&mut self, sample_rate: f32, timestamp: Duration) -> f32 {
+    // let prev_cycle_count = self.timer.cpu_cycle_count(sample_rate);
+    self.timer.tick(timestamp);
 
     if !self.enabled {
       return 0.0;
     }
 
+    if self.length_counter.counter == 0 || self.linear_counter.counter == 0 {
+      return 0.0;
+    }
+
+    // let cycle_count = self.timer.cpu_cycle_count(sample_rate);
+    // let elapsed_cycles = cycle_count - prev_cycle_count;
+
+    // for _i in 0..(elapsed_cycles * 2) {
+    //   self.sequencer.tick(
+    //     self.enabled && self.linear_counter.counter > 0 && self.length_counter.counter > 0,
+    //     |sequence| {
+    //       // this represents a step in the 15 -> 0, 0 -> 15 sequence
+    //       (sequence + 1) % 32
+    //     },
+    //   );
+    // }
+
+    if self.timer.is_quarter_frame(sample_rate) {
+      self.linear_counter.tick();
+    }
+    if self.timer.is_half_frame(sample_rate) {
+      self.length_counter.tick();
+    }
+
     let mut output: f32 = 0.0;
+    let current_sample_index = self.timer.current_sample_index(sample_rate);
 
     for i in 0..self.harmonics {
       let n = ((i * 2) + 1) as f32;
       let sample_index_radians =
-        (n * self.frequency * TWO_PI * self.current_sample_index) / sample_rate;
+        (n * self.frequency() * TWO_PI * current_sample_index) / sample_rate;
       output += -sinfull(sample_index_radians) / n;
     }
 
@@ -63,8 +103,22 @@ impl AudioChannel for APUTriangleOscillator {
     };
 
     match command.as_ref() {
-      APUTriangleOscillatorCommand::SetFrequency(frequency) => self.frequency = *frequency,
       APUTriangleOscillatorCommand::SetEnabled(enabled) => self.enabled = *enabled,
+      APUTriangleOscillatorCommand::WriteControl(value) => {
+        self.linear_counter.counter = value.counter_reload_value();
+        self.linear_counter.control_flag = value.control_flag();
+        self.length_counter.halt = value.control_flag();
+      }
+      APUTriangleOscillatorCommand::WriteTimerRegister(value) => {
+        self.sequencer.timer = value.timer();
+      }
+      APUTriangleOscillatorCommand::LoadLengthCounterByIndex(index) => {
+        self.length_counter.load_length(*index);
+        self.linear_counter.reload_flag = true;
+      }
+      APUTriangleOscillatorCommand::SetAPUSequencerMode(mode) => {
+        self.timer.sequencer_mode = mode.clone();
+      }
     }
   }
 }
@@ -74,15 +128,14 @@ pub struct APUTriangleChannel {
   pub control: APUTriangleControlRegister,
   pub timer: APUTimerRegister,
   pub enabled: bool,
-  pub length_counter: APULengthCounter,
-  pub linear_counter: APULinearCounter,
-  pub sequencer: APUSequencer,
+  pub length_counter_load_index: u8,
+  pub sequencer_mode: APUSequencerMode,
 }
 
 impl Default for APUTriangleChannel {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl APUTriangleChannel {
@@ -91,21 +144,12 @@ impl APUTriangleChannel {
       control: 0.into(),
       timer: 0.into(),
       enabled: false,
-      linear_counter: APULinearCounter::new(),
-      length_counter: APULengthCounter::new(),
-      sequencer: APUSequencer::new(),
+      length_counter_load_index: 0,
+      sequencer_mode: APUSequencerMode::FourStep,
     }
   }
 
-  pub fn producing_sound(&self) -> bool {
-    self.enabled && self.length_counter.counter > 0 && self.linear_counter.counter > 0
-  }
-
   pub fn write_control(&mut self, value: APUTriangleControlRegister) {
-    self.linear_counter.counter = value.counter_reload_value();
-    self.linear_counter.control_flag = value.control_flag();
-    self.length_counter.halt = value.control_flag();
-
     self.control = value;
   }
 
@@ -117,12 +161,43 @@ impl APUTriangleChannel {
     };
 
     self.timer = new_value;
-    self.sequencer.timer = self.timer.timer();
 
     if high_byte {
-      let length_counter_load_index = value >> 3;
-      self.length_counter.load_length(length_counter_load_index);
-      self.linear_counter.reload_flag = true;
+      self.length_counter_load_index = value >> 3;
     }
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct APUTriangleChannelState {
+  enabled: bool,
+  control: APUTriangleControlRegister,
+  timer_register: APUTimerRegister,
+  length_counter_load_index: u8,
+  sequencer_mode: APUSequencerMode,
+}
+
+impl APUChannelStateTrait for APUTriangleChannelState {
+  type Channel = APUTriangleChannel;
+  type Command = APUTriangleOscillatorCommand;
+
+  fn capture(channel: &Self::Channel) -> Self {
+    APUTriangleChannelState {
+      enabled: channel.enabled,
+      control: channel.control,
+      timer_register: channel.timer,
+      length_counter_load_index: channel.length_counter_load_index,
+      sequencer_mode: channel.sequencer_mode.clone(),
+    }
+  }
+
+  fn commands(&self) -> Vec<Self::Command> {
+    vec![
+      APUTriangleOscillatorCommand::SetEnabled(self.enabled),
+      APUTriangleOscillatorCommand::WriteControl(self.control),
+      APUTriangleOscillatorCommand::WriteTimerRegister(self.timer_register),
+      APUTriangleOscillatorCommand::LoadLengthCounterByIndex(self.length_counter_load_index),
+      APUTriangleOscillatorCommand::SetAPUSequencerMode(self.sequencer_mode.clone()),
+    ]
   }
 }

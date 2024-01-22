@@ -7,4 +7,4 @@ codesign -s - -v -f --entitlements =(echo -n '<?xml version="1.0" encoding="UTF-
         <key>com.apple.security.get-task-allow</key>
         <true/>
     </dict>
-</plist>') target/release/family-computer
+</plist>') target/release-with-debug/family-computer

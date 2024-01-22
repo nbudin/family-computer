@@ -53,18 +53,6 @@ impl APU {
     let mut half_frame = false;
     let mut irq_set = false;
 
-    if apu.cycle_count % 3 == 0 {
-      apu.triangle.sequencer.tick(
-        apu.status.triangle_enable()
-          && apu.triangle.linear_counter.counter > 0
-          && apu.triangle.length_counter.counter > 0,
-        |sequence| {
-          // this represents a step in the 15 -> 0, 0 -> 15 sequence
-          (sequence + 1) % 32
-        },
-      );
-    }
-
     if apu.cycle_count % 6 == 0 {
       apu.frame_cycle_count += 1;
 
@@ -103,39 +91,6 @@ impl APU {
         },
       }
 
-      if quarter_frame {
-        // volume envelope adjust
-        for envelope in [&mut apu.pulse1.envelope, &mut apu.pulse2.envelope] {
-          envelope.tick();
-        }
-        apu.triangle.linear_counter.tick();
-      }
-
-      if half_frame {
-        // note length and sweep adjust
-        for length_counter in [
-          &mut apu.pulse1.length_counter,
-          &mut apu.pulse2.length_counter,
-          &mut apu.triangle.length_counter,
-        ] {
-          length_counter.tick();
-        }
-      }
-
-      apu
-        .pulse1
-        .sequencer
-        .tick(apu.status.pulse1_enable(), |sequence| {
-          ((sequence & 0x0001) << 7) | ((sequence & 0x00fe) >> 1)
-        });
-
-      apu
-        .pulse2
-        .sequencer
-        .tick(apu.status.pulse1_enable(), |sequence| {
-          ((sequence & 0x0001) << 7) | ((sequence & 0x00fe) >> 1)
-        });
-
       let new_state = APUState::capture(apu);
       let time_since_start = Duration::from_secs_f32(cpu_cycle_count as f32 / NTSC_CPU_FREQUENCY);
 
@@ -160,6 +115,15 @@ impl APU {
     self.pulse1.enabled = value.pulse1_enable();
     self.pulse2.enabled = value.pulse2_enable();
     self.triangle.enabled = value.triangle_enable();
+    self.noise.enabled = value.noise_enable();
+  }
+
+  fn write_frame_counter_byte(&mut self, value: APUFrameCounterRegister) {
+    self.frame_counter = value;
+    self.pulse1.sequencer_mode = value.sequencer_mode();
+    self.pulse2.sequencer_mode = value.sequencer_mode();
+    self.triangle.sequencer_mode = value.sequencer_mode();
+    self.noise.sequencer_mode = value.sequencer_mode();
   }
 }
 
@@ -188,6 +152,7 @@ impl Bus<u16> for APU {
       0x400e => self.noise.write_mode_period(value.into()),
       0x400f => self.noise.write_length_counter_load(value.into()),
       0x4015 => self.write_status_byte(value.into()),
+      0x4017 => self.write_frame_counter_byte(value.into()),
       _ => {}
     }
   }

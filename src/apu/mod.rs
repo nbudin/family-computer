@@ -8,6 +8,7 @@ mod noise;
 mod pulse;
 mod registers;
 mod sequencer;
+mod timing;
 mod triangle;
 
 pub use apu::*;

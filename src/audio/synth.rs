@@ -108,11 +108,14 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
             let mut commands_to_run_now: Vec<SynthCommand<ChannelIdentifier>> = Vec::new();
 
-            if let Some(start_time) = start_time {
-              let playback_time_since_start = timestamp
+            let playback_time_since_start = start_time.map(|start_time| {
+              timestamp
                 .playback
                 .duration_since(&start_time)
-                .unwrap_or_default();
+                .unwrap_or_default()
+            });
+
+            if let Some(playback_time_since_start) = playback_time_since_start {
               loop {
                 let command = command_queue.pop_front();
 
@@ -147,6 +150,7 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
                 .collect(),
               num_channels,
               sample_rate,
+              playback_time_since_start.unwrap_or_default(),
             )
           },
           err_fn,
@@ -172,6 +176,7 @@ fn process_frame<SampleType>(
   mut channels: Vec<&mut Box<dyn AudioChannel>>,
   num_channels: usize,
   sample_rate: f32,
+  timestamp: Duration,
 ) where
   SampleType: Sample
     + FromSample<f32>
@@ -184,7 +189,9 @@ fn process_frame<SampleType>(
       + channels
         .iter_mut()
         .map(|channel| {
-          SampleType::from_sample(channel.get_next_sample(sample_rate) / amplitude_divisor)
+          SampleType::from_sample(
+            channel.get_next_sample(sample_rate, timestamp) / amplitude_divisor,
+          )
         })
         .sum::<SampleType>();
 
