@@ -11,7 +11,7 @@ jobs:
           - os: windows
             cargo_target: x86_64-pc-windows-msvc
             build_command: cargo make build
-            build_artifact: target/release/family-computer.exe
+            build_artifact: "target\\release\\family-computer.exe"
             executable_filename: family-computer.exe
             release_upload_prefix: family-computer-windows-x64
             runs_on: windows-latest
