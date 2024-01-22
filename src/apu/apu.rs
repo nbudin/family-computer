@@ -49,8 +49,6 @@ impl APU {
     apu_sender: &Sender<SynthCommand<APUSynthChannel>>,
     cpu_cycle_count: u64,
   ) -> bool {
-    let mut quarter_frame = false;
-    let mut half_frame = false;
     let mut irq_set = false;
 
     if apu.cycle_count % 6 == 0 {
@@ -58,15 +56,7 @@ impl APU {
 
       match apu.frame_counter.sequencer_mode() {
         APUSequencerMode::FourStep => match apu.frame_cycle_count {
-          3729 => quarter_frame = true,
-          7457 => {
-            quarter_frame = true;
-            half_frame = true;
-          }
-          11186 => quarter_frame = true,
           14916 => {
-            quarter_frame = true;
-            half_frame = true;
             apu.frame_cycle_count = 0;
             if !apu.frame_counter.interrupt_inhibit() {
               irq_set = true;
@@ -75,16 +65,7 @@ impl APU {
           _ => {}
         },
         APUSequencerMode::FiveStep => match apu.frame_cycle_count {
-          3729 => quarter_frame = true,
-          7457 => {
-            quarter_frame = true;
-            half_frame = true;
-          }
-          11186 => quarter_frame = true,
-          14916 => {}
           18641 => {
-            quarter_frame = true;
-            half_frame = true;
             apu.frame_cycle_count = 0;
           }
           _ => {}

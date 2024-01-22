@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-use cpal::StreamInstant;
-use iced_runtime::futures::backend::default;
 use tinyvec::array_vec;
 
 use crate::{apu::COMMAND_BUFFER_SIZE, audio::audio_channel::AudioChannel};
@@ -50,10 +48,8 @@ impl APUNoiseOscillator {
   }
 
   fn amplitude(&self) -> f32 {
-    return 0.0;
-
     if self.length_counter.counter > 0 && self.shift_register.timer >= 8 {
-      (self.envelope.output.wrapping_sub(1) as f32) / 16.0
+      (self.envelope.output.saturating_sub(1) as f32) / 16.0
     } else {
       0.0
     }
@@ -61,18 +57,20 @@ impl APUNoiseOscillator {
 }
 
 impl AudioChannel for APUNoiseOscillator {
+  fn mix_amplitude(&self) -> f32 {
+    0.00494
+  }
+
   fn get_next_sample(&mut self, sample_rate: f32, timestamp: Duration) -> f32 {
-    let prev_cycles = self.timer.cpu_cycle_count(sample_rate);
     self.timer.tick(timestamp);
 
     if !self.enabled {
       return 0.0;
     }
 
-    let cycles = self.timer.cpu_cycle_count(sample_rate);
-    let elapsed_cycles = cycles - prev_cycles;
+    let cycles = self.timer.cpu_cycle_range(sample_rate);
 
-    for _i in 0..elapsed_cycles {
+    for _i in cycles {
       self.shift_register.tick(self.enabled, |value| {
         let feedback_bit = if self.mode { 6 } else { 1 };
         let feedback = (value & 0b1) ^ ((value & (1 << feedback_bit)) >> feedback_bit);
@@ -102,9 +100,13 @@ impl AudioChannel for APUNoiseOscillator {
       }
       APUNoiseOscillatorCommand::SetEnabled(enabled) => self.enabled = *enabled,
       APUNoiseOscillatorCommand::SetMode(mode) => self.mode = *mode,
-      APUNoiseOscillatorCommand::SetEnvelopeParamsAndLengthCounterHalt(enabled, divider, halt) => {
+      APUNoiseOscillatorCommand::SetEnvelopeParamsAndLengthCounterHalt(
+        enabled,
+        divider_period,
+        halt,
+      ) => {
         self.envelope.enabled = *enabled;
-        self.envelope.divider = *divider as u16;
+        self.envelope.volume = *divider_period as u16;
         self.length_counter.halt = *halt;
       }
       APUNoiseOscillatorCommand::LoadLengthCounterByIndex(value) => {

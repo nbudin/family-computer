@@ -55,6 +55,10 @@ impl APUTriangleOscillator {
 }
 
 impl AudioChannel for APUTriangleOscillator {
+  fn mix_amplitude(&self) -> f32 {
+    0.00851
+  }
+
   fn get_next_sample(&mut self, sample_rate: f32, timestamp: Duration) -> f32 {
     // let prev_cycle_count = self.timer.cpu_cycle_count(sample_rate);
     self.timer.tick(timestamp);

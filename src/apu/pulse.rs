@@ -18,6 +18,7 @@ pub enum APUPulseOscillatorCommand {
   #[default]
   NoOp,
   WriteControl(APUPulseControlRegister),
+  WriteTimerRegister(APUTimerRegister),
   SetEnabled(bool),
   LoadLengthCounterByIndex(u8),
   SetAPUSequencerMode(APUSequencerMode),
@@ -64,6 +65,10 @@ impl APUPulseOscillator {
 }
 
 impl AudioChannel for APUPulseOscillator {
+  fn mix_amplitude(&self) -> f32 {
+    0.00752
+  }
+
   fn get_next_sample(&mut self, sample_rate: f32, timestamp: Duration) -> f32 {
     // let prev_cycles = self.timer.cpu_cycle_count(sample_rate);
     self.timer.tick(timestamp);
@@ -109,8 +114,6 @@ impl AudioChannel for APUPulseOscillator {
       return;
     };
 
-    println!("{:?}", command);
-
     match command.as_ref() {
       APUPulseOscillatorCommand::NoOp => {}
       APUPulseOscillatorCommand::SetEnabled(enabled) => self.enabled = *enabled,
@@ -121,6 +124,9 @@ impl AudioChannel for APUPulseOscillator {
         self.envelope.loop_flag = value.length_counter_halt();
         self.envelope.enabled = !value.constant_volume_envelope();
         self.envelope.volume = value.volume_envelope_divider_period() as u16;
+      }
+      APUPulseOscillatorCommand::WriteTimerRegister(value) => {
+        self.timer_register = value.clone();
       }
       APUPulseOscillatorCommand::LoadLengthCounterByIndex(index) => {
         self.length_counter.load_length(*index);
@@ -186,6 +192,7 @@ pub struct APUPulseChannelState {
   enabled: bool,
   length_counter_load_index: u8,
   sequencer_mode: APUSequencerMode,
+  timer_register: APUTimerRegister,
 }
 
 impl APUChannelStateTrait for APUPulseChannelState {
@@ -198,6 +205,7 @@ impl APUChannelStateTrait for APUPulseChannelState {
       control: channel.control,
       length_counter_load_index: channel.length_counter_load_index,
       sequencer_mode: channel.sequencer_mode.clone(),
+      timer_register: channel.timer.clone(),
     }
   }
 
@@ -205,6 +213,7 @@ impl APUChannelStateTrait for APUPulseChannelState {
     array_vec!([Self::Command; COMMAND_BUFFER_SIZE] =>
       APUPulseOscillatorCommand::SetEnabled(self.enabled),
       APUPulseOscillatorCommand::WriteControl(self.control),
+      APUPulseOscillatorCommand::WriteTimerRegister(self.timer_register),
       APUPulseOscillatorCommand::LoadLengthCounterByIndex(self.length_counter_load_index),
       APUPulseOscillatorCommand::SetAPUSequencerMode(self.sequencer_mode.clone()),
     )
