@@ -77,7 +77,7 @@ pub struct APUTriangleControlRegister {
 }
 
 #[bitfield(u8)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct APUNoiseControlRegister {
   #[bits(4)]
   pub volume_envelope_divider_period: u8,

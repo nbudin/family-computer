@@ -151,10 +151,11 @@ impl<I: BusInterceptor<u16, BusType = PPUMemory> + Clone + PPUMemoryTrait> Bus<u
       self.dma.transfer = true;
     } else if addr < 0x4016 {
       self.apu.write(addr, value)
-    } else if addr < 0x4018 {
-      let controller_index = addr as usize - 0x4016;
-      let controller = &mut self.controllers[controller_index];
-      controller.poll();
+    } else if addr == 0x4016 {
+      self.controllers[0].poll();
+      self.controllers[1].poll();
+    } else if addr == 0x4017 {
+      self.apu.write(addr, value);
     } else if addr < 0x4020 {
       // TODO: CPU test mode
     }

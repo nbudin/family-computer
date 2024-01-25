@@ -6,9 +6,9 @@ pub struct APULengthCounter {
 }
 
 impl Default for APULengthCounter {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl APULengthCounter {
@@ -28,6 +28,10 @@ impl APULengthCounter {
     }
 
     self.counter
+  }
+
+  pub fn reset(&mut self) {
+    self.counter = 0;
   }
 
   pub fn load_length(&mut self, length_index: u8) {

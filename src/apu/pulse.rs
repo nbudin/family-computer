@@ -1,4 +1,4 @@
-use std::{f32::consts::PI, time::Duration};
+use std::{f32::consts::PI, ops::Rem, time::Duration};
 
 use fastapprox::fast::sinfull;
 use tinyvec::array_vec;
@@ -6,9 +6,13 @@ use tinyvec::array_vec;
 use crate::{apu::COMMAND_BUFFER_SIZE, audio::audio_channel::AudioChannel};
 
 use super::{
-  envelope::APUEnvelope, sweep::APUSweep, timing::APUOscillatorTimer, APUChannelStateTrait,
-  APULengthCounter, APUPulseControlRegister, APUPulseSweepRegister, APUSequencer, APUSequencerMode,
-  APUTimerRegister, CommandBuffer, MAX_PULSE_FREQUENCY,
+  channel::APUChannel,
+  envelope::APUEnvelope,
+  sweep::APUSweep,
+  timing::{APUOscillatorTimer, APUTimerInstant},
+  APUChannelStateTrait, APUFrameCounterRegister, APULengthCounter, APUPulseControlRegister,
+  APUPulseSweepRegister, APUSequencer, APUSequencerMode, APUTimerRegister, CommandBuffer,
+  MAX_PULSE_FREQUENCY,
 };
 
 const TWO_PI: f32 = PI * 2.0;
@@ -23,6 +27,7 @@ pub enum APUPulseOscillatorCommand {
   SetEnabled(bool),
   LoadLengthCounterByIndex(u8),
   SetAPUSequencerMode(APUSequencerMode),
+  FrameCounterSet,
 }
 
 #[derive(Clone)]
@@ -120,7 +125,12 @@ impl AudioChannel for APUPulseOscillator {
 
     match command.as_ref() {
       APUPulseOscillatorCommand::NoOp => {}
-      APUPulseOscillatorCommand::SetEnabled(enabled) => self.enabled = *enabled,
+      APUPulseOscillatorCommand::SetEnabled(enabled) => {
+        self.enabled = *enabled;
+        if !self.enabled {
+          self.length_counter.reset();
+        }
+      }
       APUPulseOscillatorCommand::WriteControl(value) => {
         self.duty_cycle = value.duty_cycle_float();
         self.sequencer.sequence = value.duty_cycle_sequence() as u32;
@@ -146,6 +156,11 @@ impl AudioChannel for APUPulseOscillator {
       APUPulseOscillatorCommand::SetAPUSequencerMode(mode) => {
         self.timer.sequencer_mode = mode.clone();
       }
+      APUPulseOscillatorCommand::FrameCounterSet => {
+        self.envelope.tick();
+        self.length_counter.tick();
+        self.sweep.tick(&self.timer_register);
+      }
     }
   }
 }
@@ -158,11 +173,29 @@ pub struct APUPulseChannel {
   pub enabled: bool,
   pub length_counter_load_index: u8,
   pub sequencer_mode: APUSequencerMode,
+  pub frame_counter_set: bool,
+  envelope: APUEnvelope,
+  length_counter: APULengthCounter,
 }
 
 impl Default for APUPulseChannel {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+impl APUChannel for APUPulseChannel {
+  fn playing(&self) -> bool {
+    self.enabled && self.length_counter.counter > 0
+  }
+
+  fn tick<T: Clone + Rem<u64, Output = T> + PartialEq<u64>>(&mut self, now: &APUTimerInstant<T>) {
+    if now.is_quarter_frame() {
+      self.envelope.tick();
+    }
+    if now.is_half_frame() {
+      self.length_counter.tick();
+    }
   }
 }
 
@@ -175,11 +208,26 @@ impl APUPulseChannel {
       enabled: false,
       length_counter_load_index: 0,
       sequencer_mode: APUSequencerMode::default(),
+      envelope: APUEnvelope::new(),
+      length_counter: APULengthCounter::new(),
+      frame_counter_set: false,
+    }
+  }
+
+  pub fn write_enabled(&mut self, enabled: bool) {
+    self.enabled = enabled;
+    if !self.enabled {
+      self.length_counter.reset();
     }
   }
 
   pub fn write_control(&mut self, value: APUPulseControlRegister) {
     self.control = value;
+    self.length_counter.halt = value.length_counter_halt();
+    self.envelope.loop_flag = value.length_counter_halt();
+    self.envelope.enabled = !value.constant_volume_envelope();
+    self.envelope.volume = value.volume_envelope_divider_period() as u16;
+    self.envelope.tick();
   }
 
   pub fn write_sweep(&mut self, value: APUPulseSweepRegister) {
@@ -195,8 +243,21 @@ impl APUPulseChannel {
 
     self.timer = new_value;
 
-    if high_byte {
+    if high_byte && self.enabled {
       self.length_counter_load_index = value >> 3;
+      self
+        .length_counter
+        .load_length(self.length_counter_load_index);
+      self.envelope.start_flag = true;
+    }
+  }
+
+  pub fn write_frame_counter(&mut self, frame_counter: APUFrameCounterRegister) {
+    self.sequencer_mode = frame_counter.sequencer_mode();
+    if self.sequencer_mode == APUSequencerMode::FiveStep {
+      self.frame_counter_set = true;
+      self.length_counter.tick();
+      self.envelope.tick();
     }
   }
 }
@@ -209,13 +270,17 @@ pub struct APUPulseChannelState {
   sequencer_mode: APUSequencerMode,
   timer_register: APUTimerRegister,
   sweep: APUPulseSweepRegister,
+  frame_counter_set: bool,
 }
 
 impl APUChannelStateTrait for APUPulseChannelState {
   type Channel = APUPulseChannel;
   type Command = APUPulseOscillatorCommand;
 
-  fn capture(channel: &Self::Channel) -> Self {
+  fn capture(channel: &mut Self::Channel) -> Self {
+    let frame_counter_set = channel.frame_counter_set;
+    channel.frame_counter_set = false;
+
     APUPulseChannelState {
       enabled: channel.enabled,
       control: channel.control,
@@ -223,6 +288,7 @@ impl APUChannelStateTrait for APUPulseChannelState {
       sequencer_mode: channel.sequencer_mode.clone(),
       timer_register: channel.timer.clone(),
       sweep: channel.sweep.clone(),
+      frame_counter_set,
     }
   }
 
@@ -234,6 +300,11 @@ impl APUChannelStateTrait for APUPulseChannelState {
       APUPulseOscillatorCommand::WriteTimerRegister(self.timer_register),
       APUPulseOscillatorCommand::LoadLengthCounterByIndex(self.length_counter_load_index),
       APUPulseOscillatorCommand::SetAPUSequencerMode(self.sequencer_mode.clone()),
+      if self.frame_counter_set {
+        APUPulseOscillatorCommand::FrameCounterSet
+      } else {
+        APUPulseOscillatorCommand::NoOp
+      }
     )
   }
 }

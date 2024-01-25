@@ -1,13 +1,16 @@
-use std::time::Duration;
+use std::{ops::Rem, time::Duration};
 
 use tinyvec::array_vec;
 
 use crate::{apu::COMMAND_BUFFER_SIZE, audio::audio_channel::AudioChannel};
 
 use super::{
-  envelope::APUEnvelope, timing::APUOscillatorTimer, APUChannelStateTrait, APULengthCounter,
-  APUNoiseControlRegister, APUNoiseLengthCounterLoadRegister, APUNoiseModePeriodRegister,
-  APUSequencer, APUSequencerMode, CommandBuffer,
+  channel::APUChannel,
+  envelope::APUEnvelope,
+  timing::{APUOscillatorTimer, APUTimerInstant},
+  APUChannelStateTrait, APUFrameCounterRegister, APULengthCounter, APUNoiseControlRegister,
+  APUNoiseLengthCounterLoadRegister, APUNoiseModePeriodRegister, APUSequencer, APUSequencerMode,
+  CommandBuffer,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Default)]
@@ -17,9 +20,10 @@ pub enum APUNoiseOscillatorCommand {
   SetShiftRegisterReload(u16),
   SetEnabled(bool),
   SetMode(bool),
-  SetEnvelopeParamsAndLengthCounterHalt(bool, u8, bool),
+  WriteControl(APUNoiseControlRegister),
   LoadLengthCounterByIndex(u8),
   SetAPUSequencerMode(APUSequencerMode),
+  FrameCounterSet,
 }
 
 #[derive(Clone)]
@@ -100,14 +104,10 @@ impl AudioChannel for APUNoiseOscillator {
       }
       APUNoiseOscillatorCommand::SetEnabled(enabled) => self.enabled = *enabled,
       APUNoiseOscillatorCommand::SetMode(mode) => self.mode = *mode,
-      APUNoiseOscillatorCommand::SetEnvelopeParamsAndLengthCounterHalt(
-        enabled,
-        divider_period,
-        halt,
-      ) => {
-        self.envelope.enabled = *enabled;
-        self.envelope.volume = *divider_period as u16;
-        self.length_counter.halt = *halt;
+      APUNoiseOscillatorCommand::WriteControl(control) => {
+        self.envelope.enabled = !control.constant_volume_envelope();
+        self.envelope.volume = control.volume_envelope_divider_period() as u16;
+        self.length_counter.halt = control.length_counter_halt();
       }
       APUNoiseOscillatorCommand::LoadLengthCounterByIndex(value) => {
         self.length_counter.load_length(*value);
@@ -115,6 +115,10 @@ impl AudioChannel for APUNoiseOscillator {
       }
       APUNoiseOscillatorCommand::SetAPUSequencerMode(mode) => {
         self.timer.sequencer_mode = mode.clone()
+      }
+      APUNoiseOscillatorCommand::FrameCounterSet => {
+        self.envelope.tick();
+        self.length_counter.tick();
       }
     }
   }
@@ -127,11 +131,29 @@ pub struct APUNoiseChannel {
   pub enabled: bool,
   pub length_counter_load: u8,
   pub sequencer_mode: APUSequencerMode,
+  envelope: APUEnvelope,
+  length_counter: APULengthCounter,
+  frame_counter_set: bool,
 }
 
 impl Default for APUNoiseChannel {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+impl APUChannel for APUNoiseChannel {
+  fn playing(&self) -> bool {
+    self.enabled && self.length_counter.counter > 0
+  }
+
+  fn tick<T: Clone + Rem<u64, Output = T> + PartialEq<u64>>(&mut self, now: &APUTimerInstant<T>) {
+    if now.is_quarter_frame() {
+      self.envelope.tick();
+    }
+    if now.is_half_frame() {
+      self.length_counter.tick();
+    }
   }
 }
 
@@ -143,11 +165,24 @@ impl APUNoiseChannel {
       enabled: false,
       length_counter_load: 0,
       sequencer_mode: APUSequencerMode::FourStep,
+      envelope: APUEnvelope::new(),
+      length_counter: APULengthCounter::new(),
+      frame_counter_set: false,
     }
   }
 
   pub fn write_control(&mut self, value: APUNoiseControlRegister) {
     self.control = value;
+    self.envelope.enabled = !value.constant_volume_envelope();
+    self.envelope.volume = value.volume_envelope_divider_period() as u16;
+    self.length_counter.halt = value.length_counter_halt();
+  }
+
+  pub fn write_enabled(&mut self, enabled: bool) {
+    self.enabled = enabled;
+    if !self.enabled {
+      self.length_counter.reset();
+    }
   }
 
   pub fn write_mode_period(&mut self, value: APUNoiseModePeriodRegister) {
@@ -155,7 +190,19 @@ impl APUNoiseChannel {
   }
 
   pub fn write_length_counter_load(&mut self, value: APUNoiseLengthCounterLoadRegister) {
-    self.length_counter_load = value.length_counter_load();
+    if self.enabled {
+      self.length_counter_load = value.length_counter_load();
+      self.length_counter.load_length(self.length_counter_load);
+    }
+  }
+
+  pub fn write_frame_counter(&mut self, frame_counter: APUFrameCounterRegister) {
+    self.sequencer_mode = frame_counter.sequencer_mode();
+    if self.sequencer_mode == APUSequencerMode::FiveStep {
+      self.frame_counter_set = true;
+      self.length_counter.tick();
+      self.envelope.tick();
+    }
   }
 }
 
@@ -167,16 +214,20 @@ pub struct APUNoiseChannelState {
   control: APUNoiseControlRegister,
   sequencer_mode: APUSequencerMode,
   length_counter_load: u8,
+  frame_counter_set: bool,
 }
 
 impl APUChannelStateTrait for APUNoiseChannelState {
   type Channel = APUNoiseChannel;
   type Command = APUNoiseOscillatorCommand;
 
-  fn capture(channel: &Self::Channel) -> Self
+  fn capture(channel: &mut Self::Channel) -> Self
   where
     Self: Sized,
   {
+    let frame_counter_set = channel.frame_counter_set;
+    channel.frame_counter_set = false;
+
     Self {
       enabled: channel.enabled,
       mode: channel.mode_period.mode(),
@@ -201,6 +252,7 @@ impl APUChannelStateTrait for APUNoiseChannelState {
       control: channel.control,
       sequencer_mode: channel.sequencer_mode.clone(),
       length_counter_load: channel.length_counter_load,
+      frame_counter_set,
     }
   }
 
@@ -209,13 +261,14 @@ impl APUChannelStateTrait for APUNoiseChannelState {
       APUNoiseOscillatorCommand::SetShiftRegisterReload(self.shift_register_reload),
       APUNoiseOscillatorCommand::SetEnabled(self.enabled),
       APUNoiseOscillatorCommand::SetMode(self.mode),
-      APUNoiseOscillatorCommand::SetEnvelopeParamsAndLengthCounterHalt(
-        !self.control.constant_volume_envelope(),
-        self.control.volume_envelope_divider_period(),
-        self.control.length_counter_halt(),
-      ),
+      APUNoiseOscillatorCommand::WriteControl(self.control),
       APUNoiseOscillatorCommand::SetAPUSequencerMode(self.sequencer_mode.clone()),
       APUNoiseOscillatorCommand::LoadLengthCounterByIndex(self.length_counter_load),
+      if self.frame_counter_set {
+        APUNoiseOscillatorCommand::FrameCounterSet
+      } else {
+        APUNoiseOscillatorCommand::NoOp
+      }
     )
   }
 }

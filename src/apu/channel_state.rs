@@ -17,7 +17,7 @@ pub struct APUState {
 }
 
 impl APUState {
-  pub fn capture(apu: &APU) -> APUState {
+  pub fn capture(apu: &mut APU) -> APUState {
     APUState {
       pulse1: APUChannelState::capture(apu, APUSynthChannel::Pulse1),
       pulse2: APUChannelState::capture(apu, APUSynthChannel::Pulse2),
@@ -66,18 +66,20 @@ pub enum APUChannelState {
 }
 
 impl APUChannelState {
-  pub fn capture(apu: &APU, channel: APUSynthChannel) -> APUChannelState {
+  pub fn capture(apu: &mut APU, channel: APUSynthChannel) -> APUChannelState {
     match channel {
       APUSynthChannel::Pulse1 => {
-        APUChannelState::Pulse1(APUPulseChannelState::capture(&apu.pulse1))
+        APUChannelState::Pulse1(APUPulseChannelState::capture(&mut apu.pulse1))
       }
       APUSynthChannel::Pulse2 => {
-        APUChannelState::Pulse2(APUPulseChannelState::capture(&apu.pulse2))
+        APUChannelState::Pulse2(APUPulseChannelState::capture(&mut apu.pulse2))
       }
       APUSynthChannel::Triangle => {
-        APUChannelState::Triangle(APUTriangleChannelState::capture(&apu.triangle))
+        APUChannelState::Triangle(APUTriangleChannelState::capture(&mut apu.triangle))
       }
-      APUSynthChannel::Noise => APUChannelState::Noise(APUNoiseChannelState::capture(&apu.noise)),
+      APUSynthChannel::Noise => {
+        APUChannelState::Noise(APUNoiseChannelState::capture(&mut apu.noise))
+      }
     }
   }
 
@@ -203,7 +205,7 @@ pub trait APUChannelStateTrait: Debug {
   type Channel;
   type Command: Eq + Default;
 
-  fn capture(channel: &Self::Channel) -> Self
+  fn capture(channel: &mut Self::Channel) -> Self
   where
     Self: Sized;
   fn commands(&self) -> CommandBuffer<Self>;

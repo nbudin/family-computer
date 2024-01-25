@@ -1,5 +1,6 @@
 mod apu;
 mod apu_synth;
+mod channel;
 mod channel_state;
 mod envelope;
 mod length_counter;

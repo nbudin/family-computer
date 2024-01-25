@@ -5,9 +5,10 @@ use smol::channel::Sender;
 use crate::{audio::synth::SynthCommand, bus::Bus};
 
 use super::{
-  timing::APUTimerInstant, APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel,
-  APUSequencerMode, APUState, APUStatusRegister, APUSynthChannel, APUTriangleChannel,
-  NTSC_CPU_FREQUENCY,
+  channel::APUChannel,
+  timing::{APUTimerInstant, CycleCountRange},
+  APUFrameCounterRegister, APUNoiseChannel, APUPulseChannel, APUSequencerMode, APUState,
+  APUStatusRegister, APUSynthChannel, APUTriangleChannel, NTSC_CPU_FREQUENCY,
 };
 
 #[derive(Debug, Clone)]
@@ -19,8 +20,8 @@ pub struct APU {
   pub noise: APUNoiseChannel,
   pub status: APUStatusRegister,
   pub frame_counter: APUFrameCounterRegister,
-  pub cycle_count: u64,
   prev_state: Option<APUState>,
+  prev_cpu_cycle_count: u64,
 }
 
 impl Default for APU {
@@ -38,8 +39,8 @@ impl APU {
       noise: APUNoiseChannel::new(),
       status: 0.into(),
       frame_counter: 0.into(),
-      cycle_count: 0,
       prev_state: None,
+      prev_cpu_cycle_count: 0,
     }
   }
 
@@ -52,17 +53,26 @@ impl APU {
 
     if cpu_cycle_count % 6 == 0 {
       let instant = APUTimerInstant {
-        cycle_count: cpu_cycle_count,
+        cycle_count: CycleCountRange {
+          start: apu.prev_cpu_cycle_count,
+          end: cpu_cycle_count,
+        },
         sequencer_mode: apu.frame_counter.sequencer_mode(),
-      };
-
-      if instant.frame_normalized().cycle_count == instant.cycles_per_frame() - 1 {
-        if instant.sequencer_mode == APUSequencerMode::FourStep
-          && !apu.frame_counter.interrupt_inhibit()
-        {
-          irq_set = true;
-        }
       }
+      .frame_normalized();
+      apu.prev_cpu_cycle_count = cpu_cycle_count;
+
+      if instant.cycle_count == instant.cycles_per_frame() - 1
+        && instant.sequencer_mode == APUSequencerMode::FourStep
+        && !apu.frame_counter.interrupt_inhibit()
+      {
+        irq_set = true;
+      }
+
+      apu.pulse1.tick(&instant);
+      apu.pulse2.tick(&instant);
+      apu.triangle.tick(&instant);
+      apu.noise.tick(&instant);
 
       let new_state = APUState::capture(apu);
       let time_since_start = Duration::from_secs_f32(cpu_cycle_count as f32 / NTSC_CPU_FREQUENCY);
@@ -78,34 +88,42 @@ impl APU {
       apu.prev_state = Some(new_state);
     }
 
-    apu.cycle_count += 1;
-
     irq_set
   }
 
   fn write_status_byte(&mut self, value: APUStatusRegister) {
     self.status = value;
-    self.pulse1.enabled = value.pulse1_enable();
-    self.pulse2.enabled = value.pulse2_enable();
-    self.triangle.enabled = value.triangle_enable();
-    self.noise.enabled = value.noise_enable();
+    self.pulse1.write_enabled(value.pulse1_enable());
+    self.pulse2.write_enabled(value.pulse2_enable());
+    self.triangle.write_enabled(value.triangle_enable());
+    self.noise.write_enabled(value.noise_enable());
   }
 
   fn write_frame_counter_byte(&mut self, value: APUFrameCounterRegister) {
     self.frame_counter = value;
-    self.pulse1.sequencer_mode = value.sequencer_mode();
-    self.pulse2.sequencer_mode = value.sequencer_mode();
-    self.triangle.sequencer_mode = value.sequencer_mode();
-    self.noise.sequencer_mode = value.sequencer_mode();
+    self.pulse1.write_frame_counter(value);
+    self.pulse2.write_frame_counter(value);
+    self.triangle.write_frame_counter(value);
+    self.noise.write_frame_counter(value);
   }
 }
 
 impl Bus<u16> for APU {
   fn try_read_readonly(&self, addr: u16) -> Option<u8> {
-    match addr {
-      0x4015 => Some(self.status.into()),
+    let result = match addr {
+      0x4015 => Some(
+        APUStatusRegister::new()
+          .with_pulse1_enable(self.pulse1.playing())
+          .with_pulse2_enable(self.pulse2.playing())
+          .with_triangle_enable(self.triangle.playing())
+          .with_noise_enable(self.noise.playing())
+          .with_frame_interrupt(self.status.frame_interrupt())
+          .into(),
+      ),
       _ => None,
-    }
+    };
+
+    result
   }
 
   fn write(&mut self, addr: u16, value: u8) {
