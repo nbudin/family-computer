@@ -98,7 +98,7 @@ impl NES {
       self.state.cartridge.cpu_bus(),
     );
 
-    let executed_instruction = self.state.cpu.tick(self.state.cartridge.cpu_bus_mut());
+    let executed_instruction = self.state.cartridge.tick_cpu(&mut self.state.cpu);
     self.state.cpu_cycle_count += 1;
 
     if let Some(instruction) = executed_instruction {
@@ -108,10 +108,7 @@ impl NES {
   }
 
   pub fn tick_ppu(&mut self, pixbuf: &mut Pixbuf) {
-    let nmi_set = self
-      .state
-      .ppu
-      .tick(pixbuf, self.state.cartridge.ppu_cpu_bus_mut());
+    let nmi_set = self.state.cartridge.tick_ppu(&mut self.state.ppu, pixbuf);
     self.state.ppu_cycle_count += 1;
 
     if nmi_set {
@@ -123,7 +120,6 @@ impl NES {
     let irq_set = self
       .state
       .cartridge
-      .cpu_bus_mut()
       .tick_apu(&self.apu_sender, self.state.cpu_cycle_count);
 
     if irq_set {
@@ -147,6 +143,10 @@ impl NES {
 
     self.tick_ppu(pixbuf);
     self.tick_apu();
+
+    if self.state.cartridge.poll_irq() {
+      self.state.cpu.irq_set = true;
+    }
   }
 
   fn log_last_executed_instruction(&mut self) {

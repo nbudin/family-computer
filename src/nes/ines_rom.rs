@@ -4,7 +4,29 @@ use std::{
   path::Path,
 };
 
+use bitfield_struct::bitfield;
+
 use crate::cartridge::CartridgeMirroring;
+
+#[bitfield(u8)]
+pub struct INESRomFlags6 {
+  vertical_mirroring: bool,
+  has_battery_ram: bool,
+  has_trainer: bool,
+  four_screen_vram: bool,
+  #[bits(4)]
+  mapper_low_nybble: u8,
+}
+
+#[bitfield(u8)]
+pub struct INESRomFlags7 {
+  vs_unisystem: bool,
+  playchoice_10: bool,
+  #[bits(2)]
+  nes20_format: u8,
+  #[bits(4)]
+  mapper_high_nybble: u8,
+}
 
 #[derive(Debug, Clone)]
 pub struct INESRom {
@@ -17,6 +39,7 @@ pub struct INESRom {
   pub playchoice_10: bool,
   pub vs_unisystem: bool,
   pub uses_chr_ram: bool,
+  pub four_screen_vram: bool,
 }
 
 impl INESRom {
@@ -33,23 +56,14 @@ impl INESRom {
     let chr_size: usize = usize::from(header[5]) * 8 * 1024;
     let uses_chr_ram = chr_size == 0;
 
-    let flags6 = header[6];
-    let has_trainer = (flags6 & 0b100) > 0;
-    let has_battery_ram = (flags6 & 0b10) > 0;
-    let vertical_mirroring = (flags6 & 0b1) > 0;
-    let mapper_low_nybble = flags6 >> 4;
+    let flags6 = INESRomFlags6::from(header[6]);
+    let flags7 = INESRomFlags7::from(header[7]);
 
-    let flags7 = header[7];
-    let _nes20_format = ((flags7 >> 2) & 0b11) == 2;
-    let playchoice_10 = (flags7 & 0b10) > 0;
-    let vs_unisystem = (flags7 & 0b1) > 0;
-    let mapper_high_nybble = flags7 >> 4;
-
-    let mapper_id = (mapper_high_nybble << 4) + mapper_low_nybble;
+    let mapper_id = (flags7.mapper_high_nybble() << 4) | flags6.mapper_low_nybble();
 
     let mut trainer_data: Option<Vec<u8>> = None;
 
-    if has_trainer {
+    if flags6.has_trainer() {
       let mut trainer_buf: [u8; 512] = [0; 512];
       reader.read_exact(&mut trainer_buf)?;
       trainer_data = Some(trainer_buf.into());
@@ -69,17 +83,20 @@ impl INESRom {
       chr_data: chr_buf,
       prg_data: prg_buf,
       trainer_data,
-      has_battery_ram,
-      vertical_mirroring,
-      playchoice_10,
-      vs_unisystem,
+      has_battery_ram: flags6.has_battery_ram(),
+      vertical_mirroring: flags6.vertical_mirroring(),
+      playchoice_10: flags7.playchoice_10(),
+      vs_unisystem: flags7.vs_unisystem(),
       mapper_id: u16::from(mapper_id),
       uses_chr_ram,
+      four_screen_vram: flags6.four_screen_vram(),
     })
   }
 
   pub fn initial_mirroring(&self) -> CartridgeMirroring {
-    if self.vertical_mirroring {
+    if self.four_screen_vram {
+      CartridgeMirroring::FourScreen
+    } else if self.vertical_mirroring {
       CartridgeMirroring::Vertical
     } else {
       CartridgeMirroring::Horizontal
