@@ -42,6 +42,7 @@ impl MMC3TargetBank {
   }
 }
 
+#[derive(Debug, Clone)]
 pub enum MMC3BankSpecifier {
   Mapped(u8, usize),
   Relative(i8, usize),
@@ -65,14 +66,15 @@ impl MMC3BankSpecifier {
   pub fn resolve_addr(&self, mapping: &[u8], data: &Vec<u8>, offset: u16) -> usize {
     match self {
       MMC3BankSpecifier::Mapped(_, bank_size) | MMC3BankSpecifier::Relative(_, bank_size) => {
-        (self.resolve_bank_index(mapping, data) * bank_size) + offset as usize
+        let bank_index = self.resolve_bank_index(mapping, data);
+        (bank_index * bank_size) + offset as usize
       }
     }
   }
 }
 
-const CHR_R0: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(0, 2 * 1024);
-const CHR_R1: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(1, 2 * 1024);
+const CHR_R0: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(0, 1024);
+const CHR_R1: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(1, 1024);
 const CHR_R2: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(2, 1024);
 const CHR_R3: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(3, 1024);
 const CHR_R4: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(4, 1024);
@@ -132,8 +134,8 @@ pub struct MMC3CPUBusInterceptor {
 
 impl MMC3CPUBusInterceptor {
   fn read_banked(&self, bank: MMC3BankSpecifier, offset: u16) -> u8 {
-    self.prg_rom
-      [bank.resolve_addr(&self.prg_rom_bank_mapping, &self.prg_rom, offset) % self.prg_rom.len()]
+    let addr = bank.resolve_addr(&self.prg_rom_bank_mapping, &self.prg_rom, offset);
+    self.prg_rom[addr]
   }
 }
 
@@ -160,11 +162,11 @@ impl BusInterceptor<u16> for MMC3CPUBusInterceptor {
         InterceptorResult::Intercepted(Some(self.read_banked(PRG_R7, addr - 0xa000)))
       }
       0xc000..=0xdfff => InterceptorResult::Intercepted(Some(match self.prg_bank_inversion {
-        true => self.read_banked(PRG_SECOND_LAST, addr - 0x8000),
-        false => self.read_banked(PRG_R6, addr - 0x8000),
+        true => self.read_banked(PRG_SECOND_LAST, addr - 0xc000),
+        false => self.read_banked(PRG_R6, addr - 0xc000),
       })),
       0xe000..=0xffff => {
-        InterceptorResult::Intercepted(Some(self.read_banked(PRG_LAST, addr - 0x8000)))
+        InterceptorResult::Intercepted(Some(self.read_banked(PRG_LAST, addr - 0xe000)))
       }
     }
   }
@@ -184,9 +186,10 @@ impl BusInterceptor<u16> for MMC3CPUBusInterceptor {
         self.bus.ppu_cpu_bus.ppu_memory.chr_a12_inversion = value.chr_a12_inversion();
       } else {
         // odd addresses set a bank mapping
+        println!("SET MAPPING {:?} <- {}", self.selected_bank, value);
         match self.selected_bank {
-          MMC3TargetBank::R0 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[0] = value,
-          MMC3TargetBank::R1 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[1] = value,
+          MMC3TargetBank::R0 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[0] = value % 2,
+          MMC3TargetBank::R1 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[1] = value % 2,
           MMC3TargetBank::R2 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[2] = value,
           MMC3TargetBank::R3 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[3] = value,
           MMC3TargetBank::R4 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[4] = value,
@@ -245,14 +248,12 @@ pub struct MMC3PPUMemoryInterceptor {
 
 impl MMC3PPUMemoryInterceptor {
   fn read_banked(&self, bank: MMC3BankSpecifier, offset: u16) -> u8 {
-    let addr =
-      bank.resolve_addr(&self.chr_bank_mapping, &self.chr_data, offset) % self.chr_data.len();
+    let addr = bank.resolve_addr(&self.chr_bank_mapping, &self.chr_data, offset);
     self.chr_data[addr]
   }
 
   fn write_banked(&mut self, bank: MMC3BankSpecifier, offset: u16, value: u8) {
-    let addr =
-      bank.resolve_addr(&self.chr_bank_mapping, &self.chr_data, offset) % self.chr_data.len();
+    let addr = bank.resolve_addr(&self.chr_bank_mapping, &self.chr_data, offset);
     self.chr_data[addr] = value;
   }
 }
