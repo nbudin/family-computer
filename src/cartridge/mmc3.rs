@@ -187,8 +187,12 @@ impl BusInterceptor<u16> for MMC3CPUBusInterceptor {
       } else {
         // odd addresses set a bank mapping
         match self.selected_bank {
-          MMC3TargetBank::R0 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[0] = value % 2,
-          MMC3TargetBank::R1 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[1] = value % 2,
+          MMC3TargetBank::R0 => {
+            self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[0] = value & 0b11111110
+          }
+          MMC3TargetBank::R1 => {
+            self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[1] = value & 0b11111110
+          }
           MMC3TargetBank::R2 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[2] = value,
           MMC3TargetBank::R3 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[3] = value,
           MMC3TargetBank::R4 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[4] = value,
