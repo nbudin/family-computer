@@ -73,6 +73,7 @@ impl MMC3BankSpecifier {
   }
 }
 
+// R0 and R1 values are always multiples of 2, so we should treat them as pointing to 1KB banks
 const CHR_R0: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(0, 1024);
 const CHR_R1: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(1, 1024);
 const CHR_R2: MMC3BankSpecifier = MMC3BankSpecifier::Mapped(2, 1024);
@@ -120,7 +121,6 @@ pub struct MMC3CPUBusInterceptor {
   pub prg_rom: Vec<u8>,
   pub prg_ram: [u8; 8 * 1024],
   pub four_screen_vram: bool,
-  pub prg_bank_inversion: bool,
   pub prg_rom_bank_mode: MMC3PRGROMBankMode,
   pub selected_bank: MMC3TargetBank,
   pub prg_rom_bank_mapping: [u8; 2],
@@ -154,16 +154,16 @@ impl BusInterceptor<u16> for MMC3CPUBusInterceptor {
     match addr {
       0x0000..=0x5fff => InterceptorResult::NotIntercepted,
       0x6000..=0x7fff => InterceptorResult::Intercepted(Some(self.prg_ram[addr as usize - 0x6000])),
-      0x8000..=0x9fff => InterceptorResult::Intercepted(Some(match self.prg_bank_inversion {
-        false => self.read_banked(PRG_R6, addr - 0x8000),
-        true => self.read_banked(PRG_SECOND_LAST, addr - 0x8000),
+      0x8000..=0x9fff => InterceptorResult::Intercepted(Some(match self.prg_rom_bank_mode {
+        MMC3PRGROMBankMode::FixedHigh => self.read_banked(PRG_R6, addr - 0x8000),
+        MMC3PRGROMBankMode::FixedLow => self.read_banked(PRG_SECOND_LAST, addr - 0x8000),
       })),
       0xa000..=0xbfff => {
         InterceptorResult::Intercepted(Some(self.read_banked(PRG_R7, addr - 0xa000)))
       }
-      0xc000..=0xdfff => InterceptorResult::Intercepted(Some(match self.prg_bank_inversion {
-        true => self.read_banked(PRG_SECOND_LAST, addr - 0xc000),
-        false => self.read_banked(PRG_R6, addr - 0xc000),
+      0xc000..=0xdfff => InterceptorResult::Intercepted(Some(match self.prg_rom_bank_mode {
+        MMC3PRGROMBankMode::FixedHigh => self.read_banked(PRG_SECOND_LAST, addr - 0xc000),
+        MMC3PRGROMBankMode::FixedLow => self.read_banked(PRG_R6, addr - 0xc000),
       })),
       0xe000..=0xffff => {
         InterceptorResult::Intercepted(Some(self.read_banked(PRG_LAST, addr - 0xe000)))
@@ -186,7 +186,6 @@ impl BusInterceptor<u16> for MMC3CPUBusInterceptor {
         self.bus.ppu_cpu_bus.ppu_memory.chr_a12_inversion = value.chr_a12_inversion();
       } else {
         // odd addresses set a bank mapping
-        println!("SET MAPPING {:?} <- {}", self.selected_bank, value);
         match self.selected_bank {
           MMC3TargetBank::R0 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[0] = value % 2,
           MMC3TargetBank::R1 => self.bus.ppu_cpu_bus.ppu_memory.chr_bank_mapping[1] = value % 2,
@@ -270,47 +269,55 @@ impl BusInterceptor<u16> for MMC3PPUMemoryInterceptor {
   }
 
   fn intercept_read_readonly(&self, addr: u16) -> InterceptorResult<Option<u8>> {
-    InterceptorResult::Intercepted(Some(match self.chr_a12_inversion {
-      false => match addr {
-        0x0000..=0x07ff => self.read_banked(CHR_R0, addr),
-        0x0800..=0x0fff => self.read_banked(CHR_R1, addr - 0x0800),
-        0x1000..=0x13ff => self.read_banked(CHR_R2, addr - 0x1000),
-        0x1400..=0x17ff => self.read_banked(CHR_R3, addr - 0x1400),
-        0x1800..=0x1bff => self.read_banked(CHR_R4, addr - 0x1800),
-        0x1c00..=0xffff => self.read_banked(CHR_R5, addr - 0x1c00),
-      },
-      true => match addr {
-        0x0000..=0x03ff => self.read_banked(CHR_R2, addr),
-        0x0400..=0x07ff => self.read_banked(CHR_R3, addr - 0x0400),
-        0x0800..=0x0bff => self.read_banked(CHR_R4, addr - 0x0800),
-        0x0c00..=0x0fff => self.read_banked(CHR_R5, addr - 0x0c00),
-        0x1000..=0x17ff => self.read_banked(CHR_R0, addr - 0x1000),
-        0x1800..=0xffff => self.read_banked(CHR_R1, addr - 0x1800),
-      },
-    }))
+    match addr {
+      0x0000..=0x1fff => InterceptorResult::Intercepted(Some(match self.chr_a12_inversion {
+        false => match addr {
+          0x0000..=0x07ff => self.read_banked(CHR_R0, addr),
+          0x0800..=0x0fff => self.read_banked(CHR_R1, addr - 0x0800),
+          0x1000..=0x13ff => self.read_banked(CHR_R2, addr - 0x1000),
+          0x1400..=0x17ff => self.read_banked(CHR_R3, addr - 0x1400),
+          0x1800..=0x1bff => self.read_banked(CHR_R4, addr - 0x1800),
+          0x1c00..=0xffff => self.read_banked(CHR_R5, addr - 0x1c00),
+        },
+        true => match addr {
+          0x0000..=0x03ff => self.read_banked(CHR_R2, addr),
+          0x0400..=0x07ff => self.read_banked(CHR_R3, addr - 0x0400),
+          0x0800..=0x0bff => self.read_banked(CHR_R4, addr - 0x0800),
+          0x0c00..=0x0fff => self.read_banked(CHR_R5, addr - 0x0c00),
+          0x1000..=0x17ff => self.read_banked(CHR_R0, addr - 0x1000),
+          0x1800..=0xffff => self.read_banked(CHR_R1, addr - 0x1800),
+        },
+      })),
+      _ => InterceptorResult::NotIntercepted,
+    }
   }
 
   fn intercept_write(&mut self, addr: u16, value: u8) -> InterceptorResult<()> {
-    match self.chr_a12_inversion {
-      false => match addr {
-        0x0000..=0x07ff => self.write_banked(CHR_R0, addr, value),
-        0x0800..=0x0fff => self.write_banked(CHR_R1, addr - 0x0800, value),
-        0x1000..=0x13ff => self.write_banked(CHR_R2, addr - 0x1000, value),
-        0x1400..=0x17ff => self.write_banked(CHR_R3, addr - 0x1400, value),
-        0x1800..=0x1bff => self.write_banked(CHR_R4, addr - 0x1800, value),
-        0x1c00..=0xffff => self.write_banked(CHR_R5, addr - 0x1c00, value),
-      },
-      true => match addr {
-        0x0000..=0x03ff => self.write_banked(CHR_R2, addr, value),
-        0x0400..=0x07ff => self.write_banked(CHR_R3, addr - 0x0400, value),
-        0x0800..=0x0bff => self.write_banked(CHR_R4, addr - 0x0800, value),
-        0x0c00..=0x0fff => self.write_banked(CHR_R5, addr - 0x0c00, value),
-        0x1000..=0x17ff => self.write_banked(CHR_R0, addr - 0x1000, value),
-        0x1800..=0xffff => self.write_banked(CHR_R1, addr - 0x1800, value),
-      },
-    }
+    match addr {
+      0x0000..=0x1fff => {
+        match self.chr_a12_inversion {
+          false => match addr {
+            0x0000..=0x07ff => self.write_banked(CHR_R0, addr, value),
+            0x0800..=0x0fff => self.write_banked(CHR_R1, addr - 0x0800, value),
+            0x1000..=0x13ff => self.write_banked(CHR_R2, addr - 0x1000, value),
+            0x1400..=0x17ff => self.write_banked(CHR_R3, addr - 0x1400, value),
+            0x1800..=0x1bff => self.write_banked(CHR_R4, addr - 0x1800, value),
+            0x1c00..=0xffff => self.write_banked(CHR_R5, addr - 0x1c00, value),
+          },
+          true => match addr {
+            0x0000..=0x03ff => self.write_banked(CHR_R2, addr, value),
+            0x0400..=0x07ff => self.write_banked(CHR_R3, addr - 0x0400, value),
+            0x0800..=0x0bff => self.write_banked(CHR_R4, addr - 0x0800, value),
+            0x0c00..=0x0fff => self.write_banked(CHR_R5, addr - 0x0c00, value),
+            0x1000..=0x17ff => self.write_banked(CHR_R0, addr - 0x1000, value),
+            0x1800..=0xffff => self.write_banked(CHR_R1, addr - 0x1800, value),
+          },
+        };
+        InterceptorResult::Intercepted(())
+      }
 
-    InterceptorResult::Intercepted(())
+      _ => InterceptorResult::NotIntercepted,
+    }
   }
 }
 
@@ -339,7 +346,6 @@ impl Mapper for MMC3 {
         prg_rom: rom.prg_data,
         prg_ram: [0; 8 * 1024],
         four_screen_vram: rom.four_screen_vram,
-        prg_bank_inversion: false,
         prg_rom_bank_mode: MMC3PRGROMBankMode::FixedHigh,
         selected_bank: MMC3TargetBank::R0,
         prg_rom_bank_mapping: [0; 2],
