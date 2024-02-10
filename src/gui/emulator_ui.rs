@@ -139,9 +139,16 @@ impl Application for EmulatorUI {
         self.last_machine_state = machine_state;
         Command::none()
       }
-      EmulatorUIMessage::Shutdown => Command::single(iced_runtime::command::Action::Window(
-        iced::window::Action::Close,
-      )),
+      EmulatorUIMessage::Shutdown => {
+        println!("Asking emulator to shut down");
+        self
+          .inbound_sender
+          .send_blocking(EmulationInboundMessage::Shutdown)
+          .unwrap();
+        Command::single(iced_runtime::command::Action::Window(
+          iced::window::Action::Close,
+        ))
+      }
     }
   }
 
@@ -150,6 +157,13 @@ impl Application for EmulatorUI {
     iced::Subscription::batch([
       iced::subscription::events_with(|event, _status| match event {
         iced::Event::Keyboard(event) => handle_key_event(event),
+        iced::Event::Window(event) => match event {
+          iced::window::Event::CloseRequested => {
+            println!("Close requested");
+            Some(EmulatorUIMessage::Shutdown)
+          }
+          _ => None,
+        },
         _ => None,
       }),
       iced::subscription::unfold("emulator-outbound", (), move |()| {

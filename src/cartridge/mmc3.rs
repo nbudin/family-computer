@@ -221,10 +221,12 @@ impl BusInterceptor<u16> for MMC3CPUBusInterceptor {
       if addr % 2 == 0 {
         // even addresses set the IRQ counter reload value
         self.irq_reload = value;
+        println!("IRQ RELOAD {}", value);
       } else {
         // odd addresses clear the IRQ counter
         self.irq_reload_pending = true;
         self.irq_counter = 0;
+        println!("CLEAR IRQ RELOAD");
       }
       InterceptorResult::Intercepted(())
     } else {
@@ -232,9 +234,11 @@ impl BusInterceptor<u16> for MMC3CPUBusInterceptor {
         // even addresses disables IRQ and acknowledges any pending interrupts
         self.irq_enabled = false;
         self.pending_irq = false;
+        println!("IRQ DISABLE");
       } else {
         // odd addresses enable IRQ
         self.irq_enabled = true;
+        println!("IRQ ENABLE");
       }
       InterceptorResult::Intercepted(())
     }
@@ -383,15 +387,24 @@ impl Mapper for MMC3 {
     );
 
     if ppu.cycle == 0 {
+      if self.cpu_bus.irq_enabled && self.cpu_bus.irq_counter == 0 {
+        self.cpu_bus.pending_irq = true;
+        println!("{}: SET PENDING IRQ", ppu.scanline);
+      }
+
       if self.cpu_bus.irq_counter == 0 || self.cpu_bus.irq_reload_pending {
         self.cpu_bus.irq_counter = self.cpu_bus.irq_reload;
         self.cpu_bus.irq_reload_pending = false;
+        println!(
+          "{}: RELOAD IRQ COUNTER ({})",
+          ppu.scanline, self.cpu_bus.irq_counter
+        );
       } else {
         self.cpu_bus.irq_counter -= 1;
-      }
-
-      if self.cpu_bus.irq_enabled && self.cpu_bus.irq_counter == 0 {
-        self.cpu_bus.pending_irq = true;
+        println!(
+          "{}: DECREMENT IRQ COUNTER ({})",
+          ppu.scanline, self.cpu_bus.irq_counter
+        );
       }
     }
 
@@ -400,6 +413,9 @@ impl Mapper for MMC3 {
 
   fn poll_irq(&mut self) -> bool {
     let pending_irq = self.cpu_bus.pending_irq;
+    if pending_irq {
+      println!("SEND IRQ");
+    }
     self.cpu_bus.pending_irq = false;
     pending_irq
   }

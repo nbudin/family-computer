@@ -3,9 +3,10 @@ use std::{
   collections::{HashMap, VecDeque},
   fmt::Debug,
   hash::Hash,
+  io::{Seek, Write},
   sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex, Weak,
   },
   time::Duration,
 };
@@ -23,6 +24,7 @@ const MIXER_AMPLITUDE: f32 = 15.0;
 #[derive(Debug)]
 pub enum SynthCommand<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send> {
   ChannelCommand(ChannelIdentifier, Box<dyn Any + Send + Sync>, Duration),
+  Shutdown(Duration),
 }
 
 impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send>
@@ -31,6 +33,7 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send>
   pub fn time(&self) -> Duration {
     match self {
       SynthCommand::ChannelCommand(_, _, time) => time.to_owned(),
+      SynthCommand::Shutdown(time) => time.to_owned(),
     }
   }
 }
@@ -66,6 +69,20 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
 
     let (sender, receiver) = smol::channel::unbounded::<SynthCommand<ChannelIdentifier>>();
 
+    let wav_writer = std::env::var("RECORD_WAV")
+      .map(|_| {
+        let spec = hound::WavSpec {
+          channels: channels.len() as u16,
+          sample_rate: config.sample_rate.0,
+          bits_per_sample: 32,
+          sample_format: hound::SampleFormat::Float,
+        };
+        Arc::new(Mutex::new(
+          hound::WavWriter::create("family-computer-output.wav", spec).unwrap(),
+        ))
+      })
+      .ok();
+
     std::thread::spawn(move || {
       let mut start_time: Option<StreamInstant> = None;
       let mut command_queue: VecDeque<SynthCommand<ChannelIdentifier>> =
@@ -75,6 +92,8 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
       let shutdown = Arc::new(AtomicBool::new(false));
       let shutdown_sender = shutdown.clone();
       let control_thread = std::thread::current();
+
+      let stream_wav_writer = wav_writer.as_ref().map(|writer| Arc::downgrade(writer));
 
       let stream = device
         .build_output_stream(
@@ -141,6 +160,11 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
                 SynthCommand::ChannelCommand(index, command, _) => {
                   channels.get_mut(&index).unwrap().handle_command(command)
                 }
+                SynthCommand::Shutdown(_) => {
+                  shutdown_sender.store(true, Ordering::Relaxed);
+                  control_thread.unpark();
+                  println!("Shutting down control thread");
+                }
               }
             }
 
@@ -153,6 +177,7 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
               num_channels,
               sample_rate,
               playback_time_since_start.unwrap_or_default(),
+              stream_wav_writer.clone(),
             )
           },
           err_fn,
@@ -167,18 +192,27 @@ impl<ChannelIdentifier: Clone + Eq + PartialEq + Hash + Debug + Send + 'static> 
       }
 
       println!("Audio thread received shutdown signal");
+      if let Some(wav_writer) = wav_writer {
+        if let Ok(mutex) = Arc::try_unwrap(wav_writer) {
+          println!("Finalizing WAV output");
+          mutex.into_inner().unwrap().finalize().unwrap();
+        } else {
+          eprintln!("Error unwrapping wav_writer Arc");
+        }
+      }
     });
 
     Ok(sender)
   }
 }
 
-fn process_frame<SampleType>(
+fn process_frame<SampleType, T: Write + Seek>(
   output: &mut [SampleType],
   mut channels: Vec<&mut Box<dyn AudioChannel>>,
   num_channels: usize,
   sample_rate: f32,
   timestamp: Duration,
+  wav_writer: Option<Weak<Mutex<hound::WavWriter<T>>>>,
 ) where
   SampleType: Sample
     + FromSample<f32>
@@ -186,15 +220,24 @@ fn process_frame<SampleType>(
     + core::ops::Add<SampleType, Output = SampleType>,
 {
   for frame in output.chunks_mut(num_channels) {
-    let value: SampleType = SampleType::EQUILIBRIUM
-      + channels
-        .iter_mut()
-        .map(|channel| {
-          let channel_amplitude = channel.mix_amplitude();
-          let f32_value = channel.get_next_sample(sample_rate, timestamp) * channel_amplitude;
-          SampleType::from_sample(f32_value * MIXER_AMPLITUDE)
-        })
-        .sum::<SampleType>();
+    let f32_values = channels
+      .iter_mut()
+      .map(|channel| {
+        let channel_amplitude = channel.mix_amplitude();
+        let next_sample = channel.get_next_sample(sample_rate, timestamp);
+        next_sample * channel_amplitude * MIXER_AMPLITUDE
+      })
+      .collect::<Vec<_>>();
+
+    if let Some(wav_writer) = wav_writer.as_ref() {
+      if let Some(arc) = wav_writer.upgrade() {
+        let mut lock = arc.lock().unwrap();
+        for value in f32_values.iter() {
+          lock.write_sample(*value).unwrap();
+        }
+      }
+    }
+    let value: SampleType = SampleType::from_sample(f32_values.into_iter().sum());
 
     // copy the same value to all output channels
     for sample in frame.iter_mut() {

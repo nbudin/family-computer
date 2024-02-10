@@ -1,6 +1,5 @@
 use std::{f32::consts::PI, ops::Rem, time::Duration};
 
-use fastapprox::fast::sinfull;
 use tinyvec::array_vec;
 
 use crate::{apu::COMMAND_BUFFER_SIZE, audio::audio_channel::AudioChannel};
@@ -30,7 +29,7 @@ pub enum APUPulseOscillatorCommand {
   FrameCounterSet,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct APUPulseOscillator {
   harmonics: usize,
   enabled: bool,
@@ -110,9 +109,9 @@ impl AudioChannel for APUPulseOscillator {
 
     for n in 1..(self.harmonics + 1) {
       let n = n as f32;
-      let sample_index_radians = (n * frequency * TWO_PI * current_sample_index) / sample_rate;
-      wave1 += -sinfull(sample_index_radians) / n;
-      wave2 += -sinfull(sample_index_radians - (p * n)) / n;
+      let sample_index_radians = n * frequency * TWO_PI * (current_sample_index / sample_rate);
+      wave1 += -(sample_index_radians).sin() / n;
+      wave2 += -(sample_index_radians - (p * n)).sin() / n;
     }
 
     (2.0 * self.amplitude() / PI) * (wave1 - wave2)

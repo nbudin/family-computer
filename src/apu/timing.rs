@@ -64,7 +64,7 @@ impl std::cmp::PartialEq<u64> for CycleCountRange {
   }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct APUOscillatorTimer {
   pub prev_sample_count: u64,
   pub sample_count: u64,

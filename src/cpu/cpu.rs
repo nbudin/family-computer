@@ -155,6 +155,7 @@ impl CPU {
     }
 
     if self.irq_set && !self.p.interrupt_disable() {
+      println!("CPU HANDLING IRQ");
       CPU::push_stack(
         u8::try_from((self.pc & 0xff00) >> 8).unwrap(),
         cpu_bus,
@@ -165,6 +166,7 @@ impl CPU {
       self.p.set_break_flag(false);
       self.p.set_interrupt_disable(true);
       self.p.set_unused(true);
+      self.irq_set = false;
 
       let low = cpu_bus.read(0xfffe);
       let high = cpu_bus.read(0xffff);

@@ -26,7 +26,7 @@ pub enum APUNoiseOscillatorCommand {
   FrameCounterSet,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct APUNoiseOscillator {
   shift_register: APUSequencer,
   envelope: APUEnvelope,

@@ -45,6 +45,7 @@ pub struct MachineState {
 pub enum EmulationInboundMessage {
   ControllerButtonChanged(ControllerButton, bool),
   EmulatorStateChangeRequested(EmulatorState),
+  Shutdown,
 }
 
 #[derive(Debug)]
@@ -60,6 +61,7 @@ pub struct Emulator {
   last_tick: Instant,
   last_tick_duration: Duration,
   pixbuf: Arc<RwLock<Pixbuf>>,
+  shutdown: bool,
 }
 
 impl Emulator {
@@ -70,6 +72,7 @@ impl Emulator {
       last_tick: Instant::now(),
       last_tick_duration: Duration::default(),
       pixbuf,
+      shutdown: false,
     }
   }
 
@@ -96,7 +99,7 @@ impl Emulator {
   ) {
     let mut timer = smol::Timer::interval(Duration::from_secs_f64(TARGET_FRAME_DURATION));
 
-    loop {
+    while !self.shutdown {
       timer.next().await;
       self.run_once(&inbound_receiver, &outbound_sender).await;
     }
@@ -116,6 +119,11 @@ impl Emulator {
           .cpu_bus_mut()
           .set_controller_button_state(0, button, pressed),
         EmulationInboundMessage::EmulatorStateChangeRequested(new_state) => self.state = new_state,
+        EmulationInboundMessage::Shutdown => {
+          println!("Shutting down emulation");
+          self.nes.shutdown();
+          self.shutdown = true;
+        }
       }
     }
 

@@ -28,7 +28,7 @@ pub enum APUTriangleOscillatorCommand {
   FrameCounterSet,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct APUTriangleOscillator {
   harmonics: usize,
   enabled: bool,

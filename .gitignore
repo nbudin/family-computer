@@ -3,3 +3,5 @@
 !/smoketest/*.nes
 memorydump.bin
 .DS_Store
+/*.log
+/family-computer-output.wav

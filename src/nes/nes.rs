@@ -3,11 +3,12 @@ use std::{
   fmt::Debug,
   io::Write,
   sync::{Arc, RwLock},
+  time::Duration,
 };
 
 use crate::{
-  apu::APUSynth,
-  audio::stream_setup::StreamSpawner,
+  apu::{APUSynth, NTSC_CPU_FREQUENCY},
+  audio::{stream_setup::StreamSpawner, synth::SynthCommand},
   cartridge::Cartridge,
   cpu::{DisassemblyMachineState, ExecutedInstruction, CPU},
   ppu::{Pixbuf, PPU},
@@ -177,5 +178,14 @@ impl NES {
 
     self.state.ppu_cycle_count = 0;
     self.state.cpu_cycle_count = 0;
+  }
+
+  pub fn shutdown(&mut self) {
+    self
+      .apu_sender
+      .send_blocking(SynthCommand::Shutdown(Duration::from_secs_f32(
+        self.state.cpu_cycle_count as f32 / NTSC_CPU_FREQUENCY,
+      )))
+      .unwrap();
   }
 }

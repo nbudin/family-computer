@@ -1,6 +1,6 @@
 use super::APUTimerRegister;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct APUSweep {
   pub enabled: bool,
   pub shift_count: u8,

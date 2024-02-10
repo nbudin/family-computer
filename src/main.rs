@@ -42,7 +42,9 @@ pub fn main() -> Result<(), iced::Error> {
   let rom = INESRom::from_file(&rom_path).unwrap();
   println!("Using mapper ID {}", rom.mapper_id);
 
-  EmulatorUI::run(Settings::with_flags(EmulatorUIFlags::new(Box::new(
-    NESEmulatorBuilder::new(rom),
-  ))))
+  let mut settings =
+    Settings::with_flags(EmulatorUIFlags::new(Box::new(NESEmulatorBuilder::new(rom))));
+  settings.exit_on_close_request = false;
+
+  EmulatorUI::run(settings)
 }
