@@ -44,7 +44,7 @@ pub fn main() -> Result<(), iced::Error> {
 
   let mut settings =
     Settings::with_flags(EmulatorUIFlags::new(Box::new(NESEmulatorBuilder::new(rom))));
-  settings.exit_on_close_request = false;
+  settings.window.exit_on_close_request = false;
 
   EmulatorUI::run(settings)
 }

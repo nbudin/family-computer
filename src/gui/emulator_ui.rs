@@ -6,9 +6,11 @@ use std::{
 use iced::{
   executor,
   theme::Palette,
-  widget::{column, image, row, text, vertical_space},
+  widget::{column, image, row, text, Space},
+  window::Id,
   Application, Color, Command, Font, Length, Subscription, Theme,
 };
+use iced_runtime::core::image::FilterMethod;
 use smol::channel::{Receiver, Sender};
 
 use crate::{
@@ -39,7 +41,7 @@ pub enum EmulatorUIMessage {
   FontLoaded(Result<(), iced::font::Error>),
   FrameReady,
   MachineStateChanged(MachineState),
-  Shutdown,
+  Shutdown(Id),
 }
 
 pub struct EmulatorUI {
@@ -89,13 +91,16 @@ impl Application for EmulatorUI {
   }
 
   fn theme(&self) -> Self::Theme {
-    Theme::custom(Palette {
-      background: Color::from_rgb(0.1, 0.2, 0.3),
-      text: Color::WHITE,
-      primary: Color::from_rgb(0.0, 0.0, 1.0),
-      success: Color::from_rgb(0.0, 1.0, 0.0),
-      danger: Color::from_rgb(1.0, 0.0, 0.0),
-    })
+    Theme::custom(
+      "Family Computer theme".to_string(),
+      Palette {
+        background: Color::from_rgb(0.1, 0.2, 0.3),
+        text: Color::WHITE,
+        primary: Color::from_rgb(0.0, 0.0, 1.0),
+        success: Color::from_rgb(0.0, 1.0, 0.0),
+        danger: Color::from_rgb(1.0, 0.0, 0.0),
+      },
+    )
   }
 
   fn title(&self) -> String {
@@ -139,14 +144,14 @@ impl Application for EmulatorUI {
         self.last_machine_state = machine_state;
         Command::none()
       }
-      EmulatorUIMessage::Shutdown => {
+      EmulatorUIMessage::Shutdown(window_id) => {
         println!("Asking emulator to shut down");
         self
           .inbound_sender
           .send_blocking(EmulationInboundMessage::Shutdown)
           .unwrap();
         Command::single(iced_runtime::command::Action::Window(
-          iced::window::Action::Close,
+          iced::window::Action::Close(window_id),
         ))
       }
     }
@@ -155,12 +160,12 @@ impl Application for EmulatorUI {
   fn subscription(&self) -> Subscription<EmulatorUIMessage> {
     let outbound_receiver = self.outbound_receiver.clone();
     iced::Subscription::batch([
-      iced::subscription::events_with(|event, _status| match event {
+      iced::event::listen_with(|event, _status| match event {
         iced::Event::Keyboard(event) => handle_key_event(event),
-        iced::Event::Window(event) => match event {
+        iced::Event::Window(window_id, event) => match event {
           iced::window::Event::CloseRequested => {
             println!("Close requested");
-            Some(EmulatorUIMessage::Shutdown)
+            Some(EmulatorUIMessage::Shutdown(window_id))
           }
           _ => None,
         },
@@ -179,7 +184,9 @@ impl Application for EmulatorUI {
             EmulationOutboundMessage::MachineStateChanged(state) => {
               EmulatorUIMessage::MachineStateChanged(state)
             }
-            EmulationOutboundMessage::Shutdown => EmulatorUIMessage::Shutdown,
+            EmulationOutboundMessage::Shutdown => {
+              EmulatorUIMessage::Shutdown(iced::window::Id::MAIN)
+            }
           };
 
           (ui_message, ())
@@ -243,13 +250,14 @@ impl Application for EmulatorUI {
       registers_text,
       cpu_status_text,
       ppu_status_text,
-      vertical_space(10),
+      Space::with_height(10),
     ]
     .width(Length::FillPortion(1));
 
     let screen_view = image(self.crt_screen.image_handle())
       .width(Length::FillPortion(4))
-      .height(Length::Fill);
+      .height(Length::Fill)
+      .filter_method(FilterMethod::Nearest);
 
     let layout = row![screen_view, info_column].spacing(20);
 
